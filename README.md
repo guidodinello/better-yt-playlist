@@ -33,18 +33,22 @@ Paths are overridable: `BYP_DB`, `BYP_CLIENT_SECRET`, `BYP_TOKEN`.
 # 1. Mirror a playlist (accepts a bare id or any URL with list=)
 byp sync "https://www.youtube.com/playlist?list=PLxxxxxxxx"
 
-# 2. Query it — full DuckDB SQL over the `playlist_items` table
+# 2. Import Watch Later (blocked from the YouTube API — reads via yt-dlp)
+byp import-watch-later --browser firefox          # local DB, zero quota
+byp import-watch-later --browser firefox --api    # create real YouTube playlist
+
+# 3. Query it — full DuckDB SQL over the `playlist_items` table
 byp query "SELECT title, channel_title, duration_s
            FROM playlist_items
            WHERE channel_title = 'Some Channel' AND removed_at IS NULL
            ORDER BY added_at"
 byp query "SELECT count(*) FROM playlist_items WHERE title ILIKE '%live%'" --format csv
 
-# 3. Define a target order — SQL returning playlist_item_id, in the order you want
+# 4. Define a target order — SQL returning playlist_item_id, in the order you want
 byp order-from-query "SELECT playlist_item_id FROM playlist_items
                       WHERE removed_at IS NULL ORDER BY channel_title, title"
 
-# 4. Apply it, respecting the daily quota (re-run daily until done)
+# 5. Apply it, respecting the daily quota (re-run daily until done)
 byp reorder --status        # how many moves / days remain
 byp reorder --dry-run       # list the moves without spending quota
 byp reorder                 # apply up to --budget units today (default 9500)
@@ -69,6 +73,42 @@ to reach the target (keeping the longest already-correct subsequence fixed), and
 applies them until the daily quota budget is hit or YouTube reports the quota
 exhausted. Re-running the next day picks up where it left off. Run `byp sync`
 again afterward to refresh local `position` values.
+
+## Watch Later
+
+YouTube's Watch Later playlist is blocked from the Data API (since 2016). This
+tool reads it via yt-dlp using browser cookies and stores it in the local DB.
+
+**Local mode** (default) — zero quota, writes straight to SQLite:
+```bash
+byp import-watch-later --browser firefox
+```
+
+**API mode** — creates a real YouTube playlist and inserts videos via the API
+(50 quota units per insert, ~199/day max):
+```bash
+byp import-watch-later --browser firefox --api --name "My Watch Later"
+```
+
+### Automating the API import
+
+A systemd timer runs daily at 00:05 PT (after quota resets) and imports the
+next batch of remaining videos:
+
+```bash
+# Check timer status
+systemctl --user status byp-import-wl.timer
+
+# View logs
+journalctl --user -u byp-import-wl.service
+
+# Disable and clean up
+systemctl --user disable --now byp-import-wl.timer
+rm ~/.config/systemd/user/byp-import-wl.{service,timer}
+```
+
+Timer and service files live in `systemd/` and are symlinked to
+`~/.config/systemd/user/`.
 
 ## Development
 

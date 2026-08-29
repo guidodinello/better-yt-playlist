@@ -1,0 +1,15 @@
+[Unit]
+Description=Import Watch Later to YouTube playlist (daily)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/guido/projects/better-yt-playlist
+ExecStart=/home/guido/projects/better-yt-playlist/.venv/bin/python scripts/import_wl_to_yt.py
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

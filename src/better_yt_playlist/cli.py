@@ -40,7 +40,7 @@ def main() -> int:
 
     p_import = sub.add_parser(
         "import-watch-later",
-        help="Import Watch Later into a new playlist via yt-dlp + API",
+        help="Import Watch Later via yt-dlp (local DB or YouTube API)",
     )
     p_import.add_argument(
         "--browser",
@@ -57,6 +57,11 @@ def main() -> int:
     )
     p_import.add_argument(
         "--dry-run", action="store_true", help="Show what would happen, do nothing"
+    )
+    p_import.add_argument(
+        "--api",
+        action="store_true",
+        help="Create a real playlist on YouTube via the API (default: local-only, zero quota)",
     )
 
     p_reorder = sub.add_parser("reorder", help="Push the stored target order to YouTube")
@@ -91,19 +96,32 @@ def main() -> int:
 
         save_target_order(fetch_column(args.sql))
     elif args.command == "import-watch-later":
-        from .import_watch_later import import_watch_later
+        if args.api:
+            from .import_watch_later import import_watch_later
 
-        stats = import_watch_later(
-            browser=args.browser,
-            name=args.name,
-            budget=args.budget,
-            dry_run=args.dry_run,
-        )
-        if stats["imported"]:
-            logger.info(
-                "imported %(imported)d of %(videos)d videos — %(quota_spent)d quota units",
-                stats,
+            stats = import_watch_later(
+                browser=args.browser,
+                name=args.name,
+                budget=args.budget,
+                dry_run=args.dry_run,
             )
+            if stats["imported"]:
+                logger.info(
+                    "imported %(imported)d of %(videos)d videos — %(quota_spent)d quota units",
+                    stats,
+                )
+        else:
+            from .import_watch_later import import_watch_later_local
+
+            stats = import_watch_later_local(
+                browser=args.browser,
+                dry_run=args.dry_run,
+            )
+            if stats["inserted"]:
+                logger.info(
+                    "inserted %(inserted)d of %(videos)d videos into local DB — 0 quota units",
+                    stats,
+                )
     elif args.command == "reorder":
         from .service import reorder_status, run_reorder
 
