@@ -5,10 +5,17 @@ description = "Fetch YouTube playlist videos and analyze/cluster by theme"
 requires-python = ">=3.13"
 dependencies = [
     "google-api-python-client>=2.100",
-    "polars>=1.0",
-    "duckdb>=1.0",
-    "scikit-learn>=1.5",
 ]
+readme = "README.md"
+
+[project.scripts]
+better-yt-playlist = "better_yt_playlist.cli:main"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [dependency-groups]
 dev = [
