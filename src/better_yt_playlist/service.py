@@ -26,9 +26,19 @@ def _client() -> Any:
     return get_client()
 
 
+# The local Watch Later mirror is a separate data source (yt-dlp import), never a
+# playlist the reorder tooling operates on, so it is excluded from the "single
+# live playlist" check.
+_MIRROR_PLAYLIST_IDS = {"WL"}
+
+
 def _single_playlist_id(conn: sqlite3.Connection) -> str:
     rows = conn.execute(
-        "SELECT DISTINCT playlist_id FROM playlist_items WHERE removed_at IS NULL"
+        "SELECT DISTINCT playlist_id FROM playlist_items "
+        "WHERE removed_at IS NULL AND playlist_id NOT IN ({})".format(
+            ", ".join("?" * len(_MIRROR_PLAYLIST_IDS))
+        ),
+        tuple(_MIRROR_PLAYLIST_IDS),
     ).fetchall()
     if not rows:
         raise SystemExit("no synced playlist found — run `byp sync <playlist>` first")

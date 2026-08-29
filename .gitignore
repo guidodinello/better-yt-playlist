@@ -35,6 +35,11 @@ token.json
 *.sqlite
 *.sqlite3
 
+# yt-dlp dumps
+watch_later_dump.json
+watch_history.json
+liked_videos.json
+
 # Test coverage
 .coverage
 coverage.xml

@@ -140,6 +140,33 @@ def move_item(
     _execute(request, quota, 50, "playlistItems.update")
 
 
+def create_playlist(client: Any, quota: Quota, title: str, description: str = "") -> str:
+    """Create a new playlist and return its id. Costs 50 quota units."""
+    body = {
+        "snippet": {"title": title, "description": description},
+        "status": {"privacyStatus": "private"},
+    }
+    request = client.playlists().insert(part="snippet,status", body=body)
+    response = _execute(request, quota, 50, "playlists.insert")
+    return response["id"]
+
+
+def insert_playlist_item(
+    client: Any, quota: Quota, *, playlist_id: str, video_id: str, position: int | None = None
+) -> str:
+    """Add a video to a playlist. Returns the new playlist item id. Costs 50 units."""
+    snippet: dict[str, Any] = {
+        "playlistId": playlist_id,
+        "resourceId": {"kind": "youtube#video", "videoId": video_id},
+    }
+    if position is not None:
+        snippet["position"] = position
+    body = {"snippet": snippet}
+    request = client.playlistItems().insert(part="snippet", body=body)
+    response = _execute(request, quota, 50, "playlistItems.insert")
+    return response["id"]
+
+
 def _execute(request: Any, quota: Quota, units: int, method: str) -> dict[str, Any]:
     try:
         response = request.execute()

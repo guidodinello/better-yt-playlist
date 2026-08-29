@@ -1,0 +1,11 @@
+[Unit]
+Description=Run byp import daily at 00:05 PT (after quota reset)
+
+[Timer]
+OnCalendar=*-*-* 00:05:00
+TimeZone=America/Los_Angeles
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

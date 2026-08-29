@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `byp reorder` — apply the target order via `playlistItems.update`, bounded by a
   daily quota budget (`--budget`, `--status`, `--dry-run`); LIS-based planner
   keeps moves to a minimum and the run resumes across days
+- `byp import-watch-later` — read YouTube Watch Later via yt-dlp (blocked from the
+  Data API) into the local DB (`--local`, zero quota) or into a real YouTube
+  playlist (`--api`, 50 units per insert; resumable across runs)
+- `byp import-wl-to-yt` — daily incremental job that imports remaining Watch Later
+  videos into a target playlist, respecting the daily quota, idempotently
+- systemd timer/service for automated daily Watch Later import at the PT quota reset
 - OAuth 2.0 installed-app flow with automatic re-consent on refresh-token expiry
 - Quota accounting table, measured against the midnight-Pacific reset
 - Initial project structure with src layout

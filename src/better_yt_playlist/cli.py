@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 
 from . import __version__
 
@@ -38,6 +39,32 @@ def main() -> int:
     )
     p_order.add_argument("sql")
 
+    p_import = sub.add_parser(
+        "import-watch-later",
+        help="Import Watch Later via yt-dlp (local DB or YouTube API)",
+    )
+    p_import.add_argument(
+        "--browser",
+        default="chrome",
+        choices=["chrome", "brave", "edge", "firefox"],
+        help="Browser to read YouTube cookies from (default: chrome)",
+    )
+    p_import.add_argument("--name", default="Watch Later (Import)", help="New playlist name")
+    p_import.add_argument(
+        "--budget",
+        type=int,
+        default=10000,
+        help="Max quota units to spend today (default 10000)",
+    )
+    p_import.add_argument(
+        "--dry-run", action="store_true", help="Show what would happen, do nothing"
+    )
+    p_import.add_argument(
+        "--api",
+        action="store_true",
+        help="Create a real playlist on YouTube via the API (default: local-only, zero quota)",
+    )
+
     p_reorder = sub.add_parser("reorder", help="Push the stored target order to YouTube")
     p_reorder.add_argument(
         "--budget",
@@ -47,6 +74,16 @@ def main() -> int:
     )
     p_reorder.add_argument("--status", action="store_true", help="Show progress, do nothing")
     p_reorder.add_argument("--dry-run", action="store_true", help="List moves, do not apply")
+
+    p_wl = sub.add_parser(
+        "import-wl-to-yt",
+        help="Import remaining Watch Later videos into a target YouTube playlist (daily timer)",
+    )
+    p_wl.add_argument(
+        "--target-playlist",
+        default=os.environ.get("BYP_TARGET_PLAYLIST"),
+        help="Playlist id to import into (default: $BYP_TARGET_PLAYLIST)",
+    )
 
     args = parser.parse_args()
 
@@ -69,6 +106,33 @@ def main() -> int:
         from .service import save_target_order
 
         save_target_order(fetch_column(args.sql))
+    elif args.command == "import-watch-later":
+        if args.api:
+            from .import_watch_later import import_watch_later
+
+            stats = import_watch_later(
+                browser=args.browser,
+                name=args.name,
+                budget=args.budget,
+                dry_run=args.dry_run,
+            )
+            if stats["imported"]:
+                logger.info(
+                    "imported %(imported)d of %(videos)d videos — %(quota_spent)d quota units",
+                    stats,
+                )
+        else:
+            from .import_watch_later import import_watch_later_local
+
+            stats = import_watch_later_local(
+                browser=args.browser,
+                dry_run=args.dry_run,
+            )
+            if stats["inserted"]:
+                logger.info(
+                    "inserted %(inserted)d of %(videos)d videos into local DB — 0 quota units",
+                    stats,
+                )
     elif args.command == "reorder":
         from .service import reorder_status, run_reorder
 
@@ -76,6 +140,18 @@ def main() -> int:
             reorder_status()
         else:
             run_reorder(budget=args.budget, dry_run=args.dry_run)
+    elif args.command == "import-wl-to-yt":
+        if not args.target_playlist:
+            raise SystemExit(
+                "no target playlist — pass --target-playlist or set BYP_TARGET_PLAYLIST"
+            )
+        from .import_wl_to_yt import import_remaining
+
+        stats = import_remaining(args.target_playlist)
+        logger.info(
+            "imported %(imported)d (already %(already)d, skipped %(skipped)d) of %(total)d videos",
+            stats,
+        )
 
     return 0
 
