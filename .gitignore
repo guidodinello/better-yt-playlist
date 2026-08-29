@@ -39,3 +39,6 @@ token.json
 .coverage
 coverage.xml
 htmlcov/
+
+# Local worktrees
+.claude/worktrees/

@@ -38,4 +38,10 @@ extend-exclude = ["docs"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pyright]
-strict = ["true"]
+# Strict on our own package; standard on tests (test doubles and pytest
+# fixtures don't benefit from strict's unknown-type rules). `auth.py` and
+# `youtube.py` carry a file-level `# pyright: basic` — they are thin wrappers
+# over the Google API client, which ships no type stubs.
+typeCheckingMode = "standard"
+strict = ["src/better_yt_playlist"]
+reportMissingTypeStubs = false

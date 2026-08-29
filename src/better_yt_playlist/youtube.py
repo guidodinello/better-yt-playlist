@@ -1,3 +1,4 @@
+# pyright: basic
 """Thin wrappers over the YouTube Data API v3 calls this tool makes.
 
 Every call that costs quota routes through a :class:`~better_yt_playlist.db.Quota`
@@ -23,6 +24,13 @@ from .db import Quota
 
 class QuotaExceeded(RuntimeError):
     """Raised when the API reports the daily quota is exhausted."""
+
+
+class ApiError(RuntimeError):
+    """Any other non-success response from the API (4xx/5xx that isn't quota).
+
+    Wraps the underlying ``HttpError`` so callers need not import googleapiclient.
+    """
 
 
 def is_quota_exceeded(exc: HttpError) -> bool:
@@ -138,6 +146,6 @@ def _execute(request: Any, quota: Quota, units: int, method: str) -> dict[str, A
     except HttpError as exc:
         if is_quota_exceeded(exc):
             raise QuotaExceeded(method) from exc
-        raise
+        raise ApiError(f"{method}: {exc}") from exc
     quota.charge(units, method)
     return response

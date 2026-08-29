@@ -10,11 +10,9 @@ import logging
 import sqlite3
 from typing import Any
 
-from googleapiclient.errors import HttpError
-
 from .db import DAILY_QUOTA, Quota, connect
-from .reorder import Move, compute_moves
-from .youtube import QuotaExceeded, fetch_live_order, move_item
+from .reorder import Move, OrderMismatch, compute_moves
+from .youtube import ApiError, QuotaExceeded, fetch_live_order, move_item
 
 logger = logging.getLogger("byp")
 
@@ -85,24 +83,28 @@ def _stored_target_order(conn: sqlite3.Connection, playlist_id: str) -> list[str
 
 def _plan(
     conn: sqlite3.Connection, client: Any, quota: Quota
-) -> tuple[str, list[tuple[str, str]], list[Move]]:
-    """Fetch live order once, compute the outstanding moves against the target."""
+) -> tuple[str, dict[str, str], list[Move]]:
+    """Fetch live order and compute the outstanding moves against the target."""
     playlist_id = _single_playlist_id(conn)
     live_pairs = fetch_live_order(client, playlist_id, quota)
+    video_of = {pid: vid for pid, vid in live_pairs}
     live_ids = [pid for pid, _ in live_pairs]
     target = _stored_target_order(conn, playlist_id)
-    moves = compute_moves(live_ids, target)
-    return playlist_id, live_pairs, moves
+    try:
+        moves = compute_moves(live_ids, target)
+    except OrderMismatch as exc:
+        raise SystemExit(str(exc)) from exc
+    return playlist_id, video_of, moves
 
 
 def reorder_status(conn: sqlite3.Connection | None = None, client: Any | None = None) -> None:
     conn = conn or connect()
     client = client or _client()
     quota = Quota(conn)
-    _, live_pairs, moves = _plan(conn, client, quota)
+    _, video_of, moves = _plan(conn, client, quota)
 
     used = quota.used_today()
-    logger.info(f"playlist size:       {len(live_pairs)}")
+    logger.info(f"playlist size:       {len(video_of)}")
     logger.info(f"moves remaining:     {len(moves)}  (~{len(moves) * MOVE_COST} quota units)")
     logger.info(f"quota used today:    {used} / {DAILY_QUOTA}  (resets midnight PT)")
     if moves:
@@ -132,25 +134,35 @@ def run_reorder(
         return
 
     client = client or _client()
-    playlist_id, live_pairs, moves = _plan(conn, client, quota)
-    video_of = dict(live_pairs)
-
-    if not moves:
-        logger.info("nothing to do — playlist already matches the target order.")
-        return
 
     if dry_run:
+        _, _, moves = _plan(conn, client, quota)
+        if not moves:
+            logger.info("nothing to do — playlist already matches the target order.")
+            return
         logger.info(f"{len(moves)} move(s) planned (dry run):")
         for m in moves:
             logger.info(f"  move {m.playlist_item_id} -> position {m.position}")
         return
 
-    done = 0
-    failed = 0
+    playlist_id, video_of, moves = _plan(conn, client, quota)
+    if not moves:
+        logger.info("nothing to do — playlist already matches the target order.")
+        return
+
+    # Every Move.position is computed assuming all earlier moves in the batch
+    # landed (a move shifts the live list). So once a move fails, the rest of
+    # the batch is invalid — stop rather than apply positions against a live
+    # list that has diverged from the plan. The moves already applied are a
+    # correct prefix; a later `byp reorder` re-plans from fresh state.
+    applied = 0
+    unmovable: str | None = None
+    stopped: str | None = None
+
     try:
         for m in moves:
             if quota.used_today() + MOVE_COST > cap:
-                logger.info(f"stopping: next move would exceed today's budget ({cap} units).")
+                stopped = "budget"
                 break
             try:
                 move_item(
@@ -161,22 +173,28 @@ def run_reorder(
                     video_id=video_of[m.playlist_item_id],
                     position=m.position,
                 )
-            except HttpError as exc:
-                # A dead/private entry, or one changed underneath us: skip it
-                # (50 units already spent) rather than aborting the whole run.
-                failed += 1
-                logger.warning("skipped %s: %s", m.playlist_item_id, exc)
-                continue
-            done += 1
-            logger.info(f"  [{done}/{len(moves)}] moved {m.playlist_item_id} -> {m.position}")
+            except ApiError as exc:
+                unmovable = m.playlist_item_id
+                logger.warning("move failed for %s: %s", m.playlist_item_id, exc)
+                break
+            applied += 1
+            logger.info(f"  [{applied}/{len(moves)}] moved {m.playlist_item_id} -> {m.position}")
     except QuotaExceeded:
+        stopped = "quota"
         logger.info("YouTube reports the daily quota is exhausted — stopping cleanly.")
 
-    left = len(moves) - done - failed
-    logger.info(f"\napplied {done} move(s), ~{quota.session_units} units this run.")
-    if failed:
-        logger.info(f"{failed} move(s) failed and were skipped (see warnings above).")
-    if left:
-        logger.info(f"{left} move(s) remain — re-run `byp reorder` (tomorrow if quota is spent).")
-    elif not failed:
+    logger.info(f"\napplied {applied} move(s), ~{quota.session_units} units this run.")
+    if unmovable:
+        logger.info(
+            f"stopped: item {unmovable} could not be repositioned (likely a deleted or "
+            "private video). Drop it from the order-from-query "
+            f"(e.g. `... AND playlist_item_id != '{unmovable}'`), then re-run `byp reorder`."
+        )
+    elif stopped == "budget":
+        logger.info(f"stopped at today's budget ({cap} units) — re-run `byp reorder` tomorrow.")
+    elif stopped == "quota":
+        logger.info("re-run `byp reorder` after the quota resets (midnight PT).")
+    elif applied < len(moves):
+        logger.info(f"{len(moves) - applied} move(s) remain — re-run `byp reorder`.")
+    else:
         logger.info("target order reached. Run `byp sync` to refresh local positions.")

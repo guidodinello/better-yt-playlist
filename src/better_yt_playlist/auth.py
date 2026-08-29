@@ -1,3 +1,4 @@
+# pyright: basic
 """OAuth 2.0 (installed-app flow) for the YouTube Data API.
 
 Reordering a playlist is a write, so the full ``youtube`` scope is required
