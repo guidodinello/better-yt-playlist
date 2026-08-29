@@ -38,6 +38,27 @@ def main() -> int:
     )
     p_order.add_argument("sql")
 
+    p_import = sub.add_parser(
+        "import-watch-later",
+        help="Import Watch Later into a new playlist via yt-dlp + API",
+    )
+    p_import.add_argument(
+        "--browser",
+        default="chrome",
+        choices=["chrome", "brave", "edge", "firefox"],
+        help="Browser to read YouTube cookies from (default: chrome)",
+    )
+    p_import.add_argument("--name", default="Watch Later (Import)", help="New playlist name")
+    p_import.add_argument(
+        "--budget",
+        type=int,
+        default=10000,
+        help="Max quota units to spend today (default 10000)",
+    )
+    p_import.add_argument(
+        "--dry-run", action="store_true", help="Show what would happen, do nothing"
+    )
+
     p_reorder = sub.add_parser("reorder", help="Push the stored target order to YouTube")
     p_reorder.add_argument(
         "--budget",
@@ -69,6 +90,20 @@ def main() -> int:
         from .service import save_target_order
 
         save_target_order(fetch_column(args.sql))
+    elif args.command == "import-watch-later":
+        from .import_watch_later import import_watch_later
+
+        stats = import_watch_later(
+            browser=args.browser,
+            name=args.name,
+            budget=args.budget,
+            dry_run=args.dry_run,
+        )
+        if stats["imported"]:
+            logger.info(
+                "imported %(imported)d of %(videos)d videos — %(quota_spent)d quota units",
+                stats,
+            )
     elif args.command == "reorder":
         from .service import reorder_status, run_reorder
 
