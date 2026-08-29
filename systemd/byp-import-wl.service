@@ -1,12 +1,15 @@
 [Unit]
-Description=Import Watch Later to YouTube playlist (daily)
+Description=Import remaining Watch Later to YouTube playlist (daily)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/guido/projects/better-yt-playlist
-ExecStart=/home/guido/projects/better-yt-playlist/.venv/bin/python scripts/import_wl_to_yt.py
+# Template for a personal tool: point at the installed `byp` entry point and set
+# the target playlist via env instead of hardcoding absolute paths in the script.
+WorkingDirectory=%h/projects/better-yt-playlist
+Environment=BYP_TARGET_PLAYLIST=PLH8xUbQjtTPc
+ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp import-wl-to-yt
 StandardOutput=journal
 StandardError=journal
 TimeoutStartSec=600

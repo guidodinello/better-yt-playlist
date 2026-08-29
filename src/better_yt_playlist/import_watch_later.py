@@ -15,13 +15,12 @@ import subprocess
 from datetime import UTC, datetime
 from typing import Any
 
-from .db import DAILY_QUOTA, Quota, connect
+from .db import DAILY_QUOTA, Quota, connect, get_state, set_state
 from .youtube import QuotaExceeded, create_playlist, insert_playlist_item
 
 logger = logging.getLogger("byp")
 
 INSERT_COST = 50
-MAX_VIDEOS_PER_RUN = (DAILY_QUOTA - 50) // INSERT_COST  # 199
 
 
 def fetch_watch_later_ids(browser: str = "chrome") -> list[str]:
@@ -76,6 +75,19 @@ def _parse_duration(entry: dict[str, Any]) -> int | None:
         return int(d)
     except (TypeError, ValueError):
         return None
+
+
+def _parse_upload_date(entry: dict[str, Any]) -> str | None:
+    """Normalize yt-dlp's ``YYYYMMDD`` upload_date to an RFC3339 date (``YYYY-MM-DD``).
+
+    ``byp sync`` writes RFC3339 timestamps into added_at/published_at, so a plain
+    ``YYYYMMDD`` would mix lexicographically-incompatible formats in the same TEXT
+    column and make ``ORDER BY added_at`` order wrongly.
+    """
+    raw = entry.get("upload_date")
+    if not raw or not isinstance(raw, str) or len(raw) != 8 or not raw.isdigit():
+        return None
+    return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
 
 
 def import_watch_later_local(
@@ -150,12 +162,12 @@ def import_watch_later_local(
             "title": entry.get("title"),
             "channel_title": entry.get("channel") or entry.get("uploader"),
             "channel_id": entry.get("channel_id"),
-            "added_at": entry.get("upload_date"),
+            "added_at": _parse_upload_date(entry),
             "duration_s": _parse_duration(entry),
             "description": entry.get("description"),
             "tags": json.dumps(entry.get("tags")) if entry.get("tags") else None,
             "view_count": entry.get("view_count"),
-            "published_at": entry.get("upload_date"),
+            "published_at": _parse_upload_date(entry),
             "synced_at": now,
         }
 
@@ -204,7 +216,7 @@ def import_watch_later(
     client: Any | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
-    """Import Watch Later into a new playlist. Returns stats dict."""
+    """Import Watch Later into a (reused) target playlist. Returns stats dict."""
     from .db import connect
 
     conn = conn or connect()
@@ -220,33 +232,51 @@ def import_watch_later(
     logger.info("found %d videos in Watch Later", len(video_ids))
 
     # 2. Check budget
+    capped = min(budget, DAILY_QUOTA)
     needed = INSERT_COST + INSERT_COST * len(video_ids)
-    if not dry_run and needed > budget:
-        capped = min(budget, DAILY_QUOTA)
-        max_import = (capped - INSERT_COST) // INSERT_COST
-        logger.info(
-            "budget allows %d of %d videos today (%d units). Re-run to continue tomorrow.",
-            max_import,
-            len(video_ids),
-            capped,
-        )
-        video_ids = video_ids[:max_import]
-        needed = INSERT_COST + INSERT_COST * len(video_ids)
+    if not dry_run:
+        # Reserve the playlist-create cost and any quota already spent today so
+        # the pre-cap matches the runtime loop gate (which subtracts used_today).
+        available = capped - quota.used_today() - INSERT_COST
+        max_import = max(0, available // INSERT_COST)
+        if needed > capped or len(video_ids) > max_import:
+            if max_import <= 0:
+                logger.info(
+                    "not enough budget to create the playlist "
+                    "(%d units left today). Nothing imported.",
+                    capped - quota.used_today(),
+                )
+                return {"videos": len(video_ids), "imported": 0, "skipped": 0, "quota_spent": 0}
+            logger.info(
+                "budget allows %d of %d videos today (%d units). Re-run to continue tomorrow.",
+                max_import,
+                len(video_ids),
+                capped,
+            )
+            video_ids = video_ids[:max_import]
+            needed = INSERT_COST + INSERT_COST * len(video_ids)
 
     if dry_run:
         logger.info("dry run: would create playlist '%s' with %d videos", name, len(video_ids))
         logger.info("  quota cost: %d units", needed)
         return {"videos": len(video_ids), "imported": 0, "skipped": 0, "quota_spent": 0}
 
-    # 3. Create playlist
+    # 3. Create/reuse the target playlist. The created playlist id is persisted so
+    #    re-runs continue into the same playlist instead of creating a new one.
     if client is None:
         from .auth import get_client
 
         client = get_client()
 
-    logger.info("creating playlist '%s' ...", name)
-    playlist_id = create_playlist(client, quota, name, "Imported from Watch Later via byp")
-    logger.info("created playlist %s", playlist_id)
+    state_key = f"api_playlist_id::{name}"
+    playlist_id = get_state(conn, state_key)
+    if playlist_id:
+        logger.info("reusing playlist '%s' (%s) from a previous run", name, playlist_id)
+    else:
+        logger.info("creating playlist '%s' ...", name)
+        playlist_id = create_playlist(client, quota, name, "Imported from Watch Later via byp")
+        set_state(conn, state_key, playlist_id)
+        logger.info("created playlist %s", playlist_id)
 
     # 4. Insert videos
     imported = 0

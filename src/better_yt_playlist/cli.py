@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 
 from . import __version__
 
@@ -74,6 +75,16 @@ def main() -> int:
     p_reorder.add_argument("--status", action="store_true", help="Show progress, do nothing")
     p_reorder.add_argument("--dry-run", action="store_true", help="List moves, do not apply")
 
+    p_wl = sub.add_parser(
+        "import-wl-to-yt",
+        help="Import remaining Watch Later videos into a target YouTube playlist (daily timer)",
+    )
+    p_wl.add_argument(
+        "--target-playlist",
+        default=os.environ.get("BYP_TARGET_PLAYLIST"),
+        help="Playlist id to import into (default: $BYP_TARGET_PLAYLIST)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "sync":
@@ -129,6 +140,18 @@ def main() -> int:
             reorder_status()
         else:
             run_reorder(budget=args.budget, dry_run=args.dry_run)
+    elif args.command == "import-wl-to-yt":
+        if not args.target_playlist:
+            raise SystemExit(
+                "no target playlist — pass --target-playlist or set BYP_TARGET_PLAYLIST"
+            )
+        from .import_wl_to_yt import import_remaining
+
+        stats = import_remaining(args.target_playlist)
+        logger.info(
+            "imported %(imported)d (already %(already)d, skipped %(skipped)d) of %(total)d videos",
+            stats,
+        )
 
     return 0
 

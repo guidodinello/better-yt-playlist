@@ -93,7 +93,7 @@ byp import-watch-later --browser firefox --api --name "My Watch Later"
 ### Automating the API import
 
 A systemd timer runs daily at 00:05 PT (after quota resets) and imports the
-next batch of remaining videos:
+next batch of remaining videos into the target playlist via `byp import-wl-to-yt`:
 
 ```bash
 # Check timer status
@@ -108,7 +108,8 @@ rm ~/.config/systemd/user/byp-import-wl.{service,timer}
 ```
 
 Timer and service files live in `systemd/` and are symlinked to
-`~/.config/systemd/user/`.
+`~/.config/systemd/user/`. The service calls the installed `byp` entry point and
+reads the target playlist from `BYP_TARGET_PLAYLIST`.
 
 ## Development
 
