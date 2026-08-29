@@ -5,11 +5,14 @@ description = "Fetch YouTube playlist videos and analyze/cluster by theme"
 requires-python = ">=3.13"
 dependencies = [
     "google-api-python-client>=2.100",
+    "google-auth-oauthlib>=1.2",
+    "duckdb>=1.1",
 ]
 readme = "README.md"
 
 [project.scripts]
 better-yt-playlist = "better_yt_playlist.cli:main"
+byp = "better_yt_playlist.cli:main"
 
 [tool.uv]
 package = true
@@ -20,7 +23,10 @@ where = ["src"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=6.0",
     "ruff>=0.13",
+    "pyright>=1.1",
+    "pip-audit>=2.7",
 ]
 
 [tool.ruff]
@@ -30,3 +36,6 @@ extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+strict = ["true"]

@@ -28,6 +28,14 @@ Thumbs.db
 .env
 .env.local
 
+# Secrets & local data
+client_secret*.json
+token.json
+*.db
+*.sqlite
+*.sqlite3
+
 # Test coverage
 .coverage
+coverage.xml
 htmlcov/
