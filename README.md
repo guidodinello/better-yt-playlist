@@ -76,8 +76,12 @@ again afterward to refresh local `position` values.
 
 ## Watch Later
 
-YouTube's Watch Later playlist is blocked from the Data API (since 2016). This
-tool reads it via yt-dlp using browser cookies and stores it in the local DB.
+YouTube's Watch Later playlist is blocked from the Data API (since 2016) — it
+cannot be reordered or written to programmatically. This tool reads it via
+yt-dlp using browser cookies and stores it in the local DB. Mirroring it into a
+real playlist (API mode, below) is what lets `byp sync`/`query`/`reorder` be
+used against Watch Later's contents at all, since those commands need a
+playlist the API can write to.
 
 **Local mode** (default) — zero quota, writes straight to SQLite:
 ```bash
@@ -106,6 +110,17 @@ journalctl --user -u byp-import-wl.service
 systemctl --user disable --now byp-import-wl.timer
 rm ~/.config/systemd/user/byp-import-wl.{service,timer}
 ```
+
+At ~199 videos/day this takes a while for a large backlog — that's expected.
+A YouTube Data API quota increase was considered and rejected: the request
+form routes through a compliance audit meant for public-facing apps with real
+users (privacy policy, ToS, expected user base), not a personal single-user
+script, so approval odds are low. Using a second GCP project/key to double the
+effective quota was also considered and rejected — it's an explicit violation
+of the YouTube API Services Terms and risks suspension. Since the local
+zero-quota import already captures the full backlog immediately, the API
+mirror's slower pace isn't blocking anything — it only affects when the real
+playlist is ready for `sync`/`reorder`.
 
 Timer and service files live in `systemd/` and are symlinked to
 `~/.config/systemd/user/`.

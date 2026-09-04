@@ -26,16 +26,27 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/youtube"]
 
 
-def _client_secret_path() -> Path:
-    return Path(os.environ.get("BYP_CLIENT_SECRET", "client_secret.json"))
+def _paths_for(project: str) -> tuple[Path, Path]:
+    """Client secret + token paths for a named quota project.
+
+    ``"default"`` keeps the original ``BYP_CLIENT_SECRET``/``BYP_TOKEN``
+    filenames; any other name looks for ``BYP_CLIENT_SECRET_<NAME>`` /
+    ``BYP_TOKEN_<NAME>`` env vars, falling back to
+    ``client_secret_<name>.json`` / ``token_<name>.json``. Each project is a
+    separate GCP project with its own daily quota, used to spread a large
+    one-off import across more than 10,000 units/day.
+    """
+    if project == "default":
+        secret = os.environ.get("BYP_CLIENT_SECRET", "client_secret.json")
+        token = os.environ.get("BYP_TOKEN", "token.json")
+    else:
+        suffix = project.upper()
+        secret = os.environ.get(f"BYP_CLIENT_SECRET_{suffix}", f"client_secret_{project}.json")
+        token = os.environ.get(f"BYP_TOKEN_{suffix}", f"token_{project}.json")
+    return Path(secret), Path(token)
 
 
-def _token_path() -> Path:
-    return Path(os.environ.get("BYP_TOKEN", "token.json"))
-
-
-def _run_flow() -> Credentials:
-    secret = _client_secret_path()
+def _run_flow(secret: Path) -> Credentials:
     if not secret.exists():
         raise SystemExit(
             f"OAuth client secret not found at {secret}.\n"
@@ -49,9 +60,9 @@ def _run_flow() -> Credentials:
     return cast(Credentials, flow.run_local_server(port=0))
 
 
-def get_credentials() -> Credentials:
-    """Return valid credentials, refreshing or re-authenticating as needed."""
-    token = _token_path()
+def get_credentials(project: str = "default") -> Credentials:
+    """Return valid credentials for ``project``, refreshing or re-authenticating as needed."""
+    secret, token = _paths_for(project)
     creds: Credentials | None = None
     if token.exists():
         creds = cast(Credentials, Credentials.from_authorized_user_file(str(token), SCOPES))
@@ -71,7 +82,7 @@ def get_credentials() -> Credentials:
             creds = None
 
     if not creds:
-        creds = _run_flow()
+        creds = _run_flow(secret)
     if creds is None:  # _run_flow always returns creds or raises; keeps types honest
         raise RuntimeError("authentication produced no credentials")
 
@@ -80,11 +91,11 @@ def get_credentials() -> Credentials:
     return creds
 
 
-def get_client() -> Any:
-    """Build an authenticated YouTube Data API v3 client."""
+def get_client(project: str = "default") -> Any:
+    """Build an authenticated YouTube Data API v3 client for ``project``."""
     return build(
         "youtube",
         "v3",
-        credentials=get_credentials(),
+        credentials=get_credentials(project),
         cache_discovery=False,
     )
