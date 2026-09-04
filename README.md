@@ -76,8 +76,12 @@ again afterward to refresh local `position` values.
 
 ## Watch Later
 
-YouTube's Watch Later playlist is blocked from the Data API (since 2016). This
-tool reads it via yt-dlp using browser cookies and stores it in the local DB.
+YouTube's Watch Later playlist is blocked from the Data API (since 2016) — it
+cannot be reordered or written to programmatically. This tool reads it via
+yt-dlp using browser cookies and stores it in the local DB. Mirroring it into a
+real playlist (API mode, below) is what lets `byp sync`/`query`/`reorder` be
+used against Watch Later's contents at all, since those commands need a
+playlist the API can write to.
 
 **Local mode** (default) — zero quota, writes straight to SQLite:
 ```bash
@@ -85,7 +89,7 @@ byp import-watch-later --browser firefox
 ```
 
 **API mode** — creates a real YouTube playlist and inserts videos via the API
-(50 quota units per insert, ~199/day max):
+(50 quota units per insert, ~199/day max per project):
 ```bash
 byp import-watch-later --browser firefox --api --name "My Watch Later"
 ```
@@ -110,6 +114,25 @@ rm ~/.config/systemd/user/byp-import-wl.{service,timer}
 Timer and service files live in `systemd/` and are symlinked to
 `~/.config/systemd/user/`. The service calls the installed `byp` entry point and
 reads the target playlist from `BYP_TARGET_PLAYLIST`.
+
+### Spreading the one-off backlog across two projects
+
+A YouTube Data API quota increase was considered and rejected: the request
+form routes through a compliance audit meant for public-facing apps with real
+users (privacy policy, ToS, expected user base), not a personal single-user
+script, so approval odds are low.
+
+Using a second GCP project/OAuth client to add a second independent 10,000
+unit/day budget was also considered risky — it's against the letter of the
+YouTube API Services Terms, which prohibit working around one app's quota with
+multiple projects, and could in principle get both projects suspended. It was
+used anyway for this one-off backlog import, accepting that risk consciously
+rather than as a default pattern: `import-wl-to-yt` spends against `PROJECTS =
+["default", "2"]` in `import_wl_to_yt.py`, falling through to the second
+project once the first's daily quota is exhausted. Each project needs its own
+`client_secret_<name>.json` / `token_<name>.json` (see `auth.py`'s
+`_paths_for`) and its own OAuth consent screen with your account added as a
+test user. Once the backlog is caught up, drop back to a single project.
 
 ## Development
 

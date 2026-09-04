@@ -44,10 +44,11 @@ CREATE TABLE IF NOT EXISTS target_order (
 );
 
 CREATE TABLE IF NOT EXISTS quota_log (
-    id     INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts     TEXT NOT NULL,
-    units  INTEGER NOT NULL,
-    method TEXT NOT NULL
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      TEXT NOT NULL,
+    units   INTEGER NOT NULL,
+    method  TEXT NOT NULL,
+    project TEXT NOT NULL DEFAULT 'default'
 );
 
 CREATE TABLE IF NOT EXISTS import_state (
@@ -61,10 +62,19 @@ def db_path() -> Path:
     return Path(os.environ.get("BYP_DB", "playlist.db"))
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns to pre-existing databases created before a schema change."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(quota_log)")}
+    if "project" not in columns:
+        conn.execute("ALTER TABLE quota_log ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
+        conn.commit()
+
+
 def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(db_path())
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 
@@ -98,24 +108,30 @@ def _pt_midnight_utc_iso() -> str:
 
 
 class Quota:
-    """Records API quota usage and reports how much is left for the PT day."""
+    """Records API quota usage and reports how much is left for the PT day.
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    ``project`` scopes usage to one GCP project's own daily quota — each
+    project (its own client secret/token, see ``auth.py``) has an
+    independent 10,000 unit/day budget.
+    """
+
+    def __init__(self, conn: sqlite3.Connection, project: str = "default") -> None:
         self.conn = conn
+        self.project = project
         self.session_units = 0
 
     def charge(self, units: int, method: str) -> None:
         self.conn.execute(
-            "INSERT INTO quota_log (ts, units, method) VALUES (?, ?, ?)",
-            (_utc_now_iso(), units, method),
+            "INSERT INTO quota_log (ts, units, method, project) VALUES (?, ?, ?, ?)",
+            (_utc_now_iso(), units, method, self.project),
         )
         self.conn.commit()
         self.session_units += units
 
     def used_today(self) -> int:
         row = self.conn.execute(
-            "SELECT COALESCE(SUM(units), 0) FROM quota_log WHERE ts >= ?",
-            (_pt_midnight_utc_iso(),),
+            "SELECT COALESCE(SUM(units), 0) FROM quota_log WHERE ts >= ? AND project = ?",
+            (_pt_midnight_utc_iso(), self.project),
         ).fetchone()
         return int(row[0])
 
