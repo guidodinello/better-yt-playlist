@@ -89,7 +89,7 @@ byp import-watch-later --browser firefox
 ```
 
 **API mode** — creates a real YouTube playlist and inserts videos via the API
-(50 quota units per insert, ~199/day max):
+(50 quota units per insert, ~199/day max per project):
 ```bash
 byp import-watch-later --browser firefox --api --name "My Watch Later"
 ```
@@ -97,7 +97,7 @@ byp import-watch-later --browser firefox --api --name "My Watch Later"
 ### Automating the API import
 
 A systemd timer runs daily at 00:05 PT (after quota resets) and imports the
-next batch of remaining videos:
+next batch of remaining videos into the target playlist via `byp import-wl-to-yt`:
 
 ```bash
 # Check timer status
@@ -111,19 +111,28 @@ systemctl --user disable --now byp-import-wl.timer
 rm ~/.config/systemd/user/byp-import-wl.{service,timer}
 ```
 
-At ~199 videos/day this takes a while for a large backlog — that's expected.
+Timer and service files live in `systemd/` and are symlinked to
+`~/.config/systemd/user/`. The service calls the installed `byp` entry point and
+reads the target playlist from `BYP_TARGET_PLAYLIST`.
+
+### Spreading the one-off backlog across two projects
+
 A YouTube Data API quota increase was considered and rejected: the request
 form routes through a compliance audit meant for public-facing apps with real
 users (privacy policy, ToS, expected user base), not a personal single-user
-script, so approval odds are low. Using a second GCP project/key to double the
-effective quota was also considered and rejected — it's an explicit violation
-of the YouTube API Services Terms and risks suspension. Since the local
-zero-quota import already captures the full backlog immediately, the API
-mirror's slower pace isn't blocking anything — it only affects when the real
-playlist is ready for `sync`/`reorder`.
+script, so approval odds are low.
 
-Timer and service files live in `systemd/` and are symlinked to
-`~/.config/systemd/user/`.
+Using a second GCP project/OAuth client to add a second independent 10,000
+unit/day budget was also considered risky — it's against the letter of the
+YouTube API Services Terms, which prohibit working around one app's quota with
+multiple projects, and could in principle get both projects suspended. It was
+used anyway for this one-off backlog import, accepting that risk consciously
+rather than as a default pattern: `import-wl-to-yt` spends against `PROJECTS =
+["default", "2"]` in `import_wl_to_yt.py`, falling through to the second
+project once the first's daily quota is exhausted. Each project needs its own
+`client_secret_<name>.json` / `token_<name>.json` (see `auth.py`'s
+`_paths_for`) and its own OAuth consent screen with your account added as a
+test user. Once the backlog is caught up, drop back to a single project.
 
 ## Development
 

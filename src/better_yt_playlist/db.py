@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS quota_log (
     method  TEXT NOT NULL,
     project TEXT NOT NULL DEFAULT 'default'
 );
+
+CREATE TABLE IF NOT EXISTS import_state (
+    key      TEXT PRIMARY KEY,
+    value    TEXT NOT NULL
+);
 """
 
 
@@ -71,6 +76,20 @@ def connect() -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     _migrate(conn)
     return conn
+
+
+def get_state(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM import_state WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def set_state(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO import_state (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
 
 
 def _utc_now_iso() -> str:
