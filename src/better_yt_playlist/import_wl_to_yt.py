@@ -21,7 +21,7 @@ from typing import Any
 
 from .auth import AuthRequiredError, get_client
 from .db import DAILY_QUOTA, Quota, connect
-from .youtube import QuotaExceeded, insert_playlist_item
+from .youtube import ApiError, QuotaExceeded, insert_playlist_item
 
 logger = logging.getLogger("byp")
 
@@ -53,13 +53,21 @@ def import_remaining(
         ).fetchall()
     }
 
+    failed_ids = {
+        r[0]
+        for r in conn.execute(
+            "SELECT video_id FROM import_failures WHERE target_playlist_id = ?",
+            (target_playlist_id,),
+        ).fetchall()
+    }
+
     remaining = [
         r[0]
         for r in conn.execute(
             "SELECT video_id FROM playlist_items WHERE playlist_id = ? ORDER BY position",
             (WL_PLAYLIST_ID,),
         ).fetchall()
-        if r[0] not in imported_ids
+        if r[0] not in imported_ids and r[0] not in failed_ids
     ]
 
     if not remaining:
@@ -115,6 +123,22 @@ def import_remaining(
             except QuotaExceeded:
                 logger.info("[%s] quota exhausted mid-import.", project)
                 break
+            except ApiError as exc:
+                # YouTube rejected this video outright (dead/private/region-locked) —
+                # record it so future runs stop retrying an insert that will never
+                # succeed, rather than burning a call against it every day forever.
+                conn.execute(
+                    "INSERT INTO import_failures ("
+                    "target_playlist_id, video_id, error, failed_at"
+                    ") VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(target_playlist_id, video_id) DO UPDATE SET "
+                    "error = excluded.error, failed_at = excluded.failed_at",
+                    (target_playlist_id, vid, str(exc), now),
+                )
+                conn.commit()
+                skipped += 1
+                idx += 1
+                logger.warning("  skipped %s (permanent): %s", vid, exc)
             except Exception as exc:
                 skipped += 1
                 idx += 1

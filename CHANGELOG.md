@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `import-wl-to-yt` now records a video as permanently failed (`import_failures`
+  table) instead of retrying it against the API forever once YouTube rejects it
+  outright (dead/private/region-locked)
+- Auth: a project needing interactive OAuth re-consent (e.g. after the 7-day
+  Testing-app token expiry) is skipped instead of crashing the whole run when
+  no browser is available, such as under the systemd timer
+
 ### Added
 - `byp sync` — mirror a YouTube playlist into local SQLite (`playlistItems.list`
   + `videos.list`), with left-join video enrichment and soft-deletion of items
