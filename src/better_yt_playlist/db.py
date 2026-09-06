@@ -55,6 +55,14 @@ CREATE TABLE IF NOT EXISTS import_state (
     key      TEXT PRIMARY KEY,
     value    TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS import_failures (
+    target_playlist_id TEXT NOT NULL,
+    video_id            TEXT NOT NULL,
+    error                TEXT NOT NULL,
+    failed_at            TEXT NOT NULL,
+    PRIMARY KEY (target_playlist_id, video_id)
+);
 """
 
 
