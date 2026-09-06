@@ -19,7 +19,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
-from .auth import get_client
+from .auth import AuthRequiredError, get_client
 from .db import DAILY_QUOTA, Quota, connect
 from .youtube import QuotaExceeded, insert_playlist_item
 
@@ -89,7 +89,11 @@ def import_remaining(
             continue
 
         logger.info("[%s] %d quota units available", project, available)
-        client = get_client(project)
+        try:
+            client = get_client(project)
+        except AuthRequiredError as exc:
+            logger.warning("[%s] %s", project, exc)
+            continue
 
         while idx < len(remaining) and quota.used_today() + INSERT_COST <= DAILY_QUOTA:
             vid = remaining[idx]

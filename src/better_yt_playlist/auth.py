@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any, cast
+from webbrowser import Error as BrowserError
 
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
@@ -24,6 +25,15 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/youtube"]
+
+
+class AuthRequiredError(RuntimeError):
+    """Interactive OAuth consent is needed but no browser is available.
+
+    Raised instead of letting ``webbrowser.Error`` propagate, so unattended
+    callers (e.g. the systemd timer) can catch it and skip the project for
+    this run instead of crashing.
+    """
 
 
 def _paths_for(project: str) -> tuple[Path, Path]:
@@ -55,9 +65,17 @@ def _run_flow(secret: Path) -> Credentials:
             "(or point BYP_CLIENT_SECRET at it)."
         )
     flow = InstalledAppFlow.from_client_secrets_file(str(secret), SCOPES)
-    # The installed-app flow always yields an oauth2 user Credentials; the
-    # broader union in the stubs also admits external-account creds.
-    return cast(Credentials, flow.run_local_server(port=0))
+    try:
+        # The installed-app flow always yields an oauth2 user Credentials; the
+        # broader union in the stubs also admits external-account creds.
+        return cast(Credentials, flow.run_local_server(port=0))
+    except BrowserError as exc:
+        raise AuthRequiredError(
+            f"OAuth consent required for {secret} but no browser is available "
+            "(likely running headless, e.g. under the systemd timer). Run "
+            "`byp import-wl-to-yt` once from an interactive terminal to "
+            "complete consent, then the timer will pick up the refreshed token."
+        ) from exc
 
 
 def get_credentials(project: str = "default") -> Credentials:
