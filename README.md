@@ -111,6 +111,14 @@ systemctl --user disable --now byp-import-wl.timer
 rm ~/.config/systemd/user/byp-import-wl.{service,timer}
 ```
 
+Before importing, the service runs `byp dedupe`, which deletes extra copies of
+any video that is in the target playlist more than once (the API allows
+duplicates, and an early version of the import created ~600 of them). It keeps
+the earliest-added copy, costs 50 units per deletion, and once the playlist is
+clean it only costs a single listing per run. YouTube caps a playlist at 5,000
+items, and a "playlist full" rejection stops the import without marking any
+video as failed.
+
 Timer and service files live in `systemd/` and are symlinked to
 `~/.config/systemd/user/`. The service calls the installed `byp` entry point and
 reads the target playlist from `BYP_TARGET_PLAYLIST`.

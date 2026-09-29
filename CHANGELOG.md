@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `import-wl-to-yt` no longer records YouTube's "playlist contains maximum
+  number of items" rejection as a permanent per-video failure; it stops the run
+  instead, so those videos are retried once the playlist has room
 - `import-wl-to-yt` now records a video as permanently failed (`import_failures`
   table) instead of retrying it against the API forever once YouTube rejects it
   outright (dead/private/region-locked)
@@ -16,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no browser is available, such as under the systemd timer
 
 ### Added
+- `byp dedupe` — delete duplicate copies of the same video from a playlist,
+  keeping the earliest-added one, within the daily quota (resumes across days);
+  the daily timer runs it before `import-wl-to-yt`
 - `byp sync` — mirror a YouTube playlist into local SQLite (`playlistItems.list`
   + `videos.list`), with left-join video enrichment and soft-deletion of items
   that disappear between syncs
