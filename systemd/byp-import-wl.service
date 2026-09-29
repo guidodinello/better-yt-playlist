@@ -9,9 +9,9 @@ Type=oneshot
 # the target playlist via env instead of hardcoding absolute paths in the script.
 WorkingDirectory=%h/projects/better-yt-playlist
 Environment=BYP_TARGET_PLAYLIST=PLH8xUbQjtTPc
-# Dedupe first so the import has room under YouTube's 5,000-item cap; it is a
-# cheap no-op (one listing) once the playlist has no duplicates left.
-ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp dedupe
+# Clean first so the import has room under YouTube's 5,000-item cap; it costs
+# ~200 units (listing + video lookup) once there is nothing left to delete.
+ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp clean
 ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp import-wl-to-yt
 StandardOutput=journal
 StandardError=journal
