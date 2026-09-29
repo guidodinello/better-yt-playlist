@@ -126,10 +126,10 @@ def import_remaining(
                 break
             except PlaylistFull:
                 # Not this video's fault: every later insert would fail the same
-                # way, and all of them succeed once room is freed (`byp dedupe`).
+                # way, and all of them succeed once room is freed (`byp clean`).
                 logger.warning(
                     "target playlist is full (YouTube's 5,000-item cap) — stopping; "
-                    "free room with `byp dedupe` or remove items, then re-run."
+                    "free room with `byp clean` or remove items, then re-run."
                 )
                 full = True
                 break
