@@ -140,7 +140,12 @@ rather than as a default pattern: `import-wl-to-yt` spends against `PROJECTS =
 project once the first's daily quota is exhausted. Each project needs its own
 `client_secret_<name>.json` / `token_<name>.json` (see `auth.py`'s
 `_paths_for`) and its own OAuth consent screen with your account added as a
-test user. Once the backlog is caught up, drop back to a single project.
+test user — both `better-yt-playlist` (default) and `better-yt-playlist-2`'s
+test-user allowlists are `guido.dinello@gmail.com`; picking a different
+signed-in Google account (e.g. guidoobolso@gmail.com) in the consent screen's
+account chooser fails with a 403 `access_denied` even though the tool itself
+otherwise works fine. Once the backlog is caught up, drop back to a single
+project.
 
 ## Development
 
