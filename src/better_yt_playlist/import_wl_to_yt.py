@@ -21,7 +21,7 @@ from typing import Any
 
 from .auth import AuthRequiredError, get_client
 from .db import DAILY_QUOTA, Quota, connect
-from .youtube import ApiError, QuotaExceeded, insert_playlist_item
+from .youtube import ApiError, PlaylistFull, QuotaExceeded, insert_playlist_item
 
 logger = logging.getLogger("byp")
 
@@ -83,9 +83,10 @@ def import_remaining(
     imported = 0
     skipped = 0
     idx = 0
+    full = False
 
     for project in PROJECTS:
-        if idx >= len(remaining):
+        if full or idx >= len(remaining):
             break
 
         quota = Quota(conn, project=project)
@@ -122,6 +123,15 @@ def import_remaining(
                     logger.info("  [%d/%d] imported", imported, len(remaining))
             except QuotaExceeded:
                 logger.info("[%s] quota exhausted mid-import.", project)
+                break
+            except PlaylistFull:
+                # Not this video's fault: every later insert would fail the same
+                # way, and all of them succeed once room is freed (`byp dedupe`).
+                logger.warning(
+                    "target playlist is full (YouTube's 5,000-item cap) — stopping; "
+                    "free room with `byp dedupe` or remove items, then re-run."
+                )
+                full = True
                 break
             except ApiError as exc:
                 # YouTube rejected this video outright (dead/private/region-locked) —

@@ -5,6 +5,7 @@
     byp order-from-query "<SQL>" store a target order (SQL returns playlist_item_id)
     byp reorder [--budget N]     push the target order to YouTube, a bit at a time
     byp reorder --status         show how many moves and days remain
+    byp dedupe [--playlist ID]   delete duplicate copies of a video, a bit at a time
 
 Paths are overridable with BYP_DB, BYP_CLIENT_SECRET, BYP_TOKEN.
 """
@@ -85,6 +86,16 @@ def main() -> int:
         help="Playlist id to import into (default: $BYP_TARGET_PLAYLIST)",
     )
 
+    p_dedupe = sub.add_parser(
+        "dedupe",
+        help="Delete duplicate copies of the same video from a playlist (daily timer)",
+    )
+    p_dedupe.add_argument(
+        "--playlist",
+        default=os.environ.get("BYP_TARGET_PLAYLIST"),
+        help="Playlist id to dedupe (default: $BYP_TARGET_PLAYLIST)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "sync":
@@ -152,6 +163,12 @@ def main() -> int:
             "imported %(imported)d (already %(already)d, skipped %(skipped)d) of %(total)d videos",
             stats,
         )
+    elif args.command == "dedupe":
+        if not args.playlist:
+            raise SystemExit("no playlist — pass --playlist or set BYP_TARGET_PLAYLIST")
+        from .dedupe import dedupe
+
+        dedupe(args.playlist)
 
     return 0
 

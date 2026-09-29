@@ -96,3 +96,31 @@ def test_permanently_failed_video_is_recorded_and_not_retried(
     result2 = import_remaining(TARGET, conn=conn)
     assert result2["imported"] == 0
     assert fake.insert_calls == []
+
+
+def test_full_playlist_stops_run_without_marking_videos_failed(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("BYP_DB", str(tmp_path / "wl.db"))
+    conn = db.connect()
+    _seed_wl(conn, ["v1", "v2", "v3"])
+
+    full = HttpError(
+        _Resp(403),  # type: ignore[arg-type]
+        b'{"error": {"errors": [{"reason": "playlistContainsMaximumNumberOfVideos"}]}}',
+    )
+
+    class FullFake(InsertFake):
+        def insert(self, *, part: str, body: Json) -> _Req | _Raiser:  # noqa: A003
+            self.insert_calls.append(str(body["snippet"]["resourceId"]["videoId"]))
+            return _Raiser(full)
+
+    fake = FullFake()
+    monkeypatch.setattr(
+        "better_yt_playlist.import_wl_to_yt.get_client", lambda project="default": fake
+    )
+
+    result = import_remaining(TARGET, conn=conn)
+    assert result["imported"] == 0
+    assert fake.insert_calls == ["v1"]  # one rejection is enough to stop, on every project
+    assert conn.execute("SELECT count(*) FROM import_failures").fetchone()[0] == 0

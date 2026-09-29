@@ -8,6 +8,8 @@ Quota costs (verified against Google's quota calculator):
     playlistItems.list    1
     videos.list           1
     playlistItems.update  50
+    playlistItems.insert  50
+    playlistItems.delete  50
 """
 
 from __future__ import annotations
@@ -33,8 +35,23 @@ class ApiError(RuntimeError):
     """
 
 
+class PlaylistFull(ApiError):
+    """The target playlist is at YouTube's 5,000-item cap.
+
+    Unlike other ``ApiError``s this says nothing about the video being inserted:
+    the same insert succeeds once room is freed, so it must not be recorded as a
+    permanent per-video failure.
+    """
+
+
 def is_quota_exceeded(exc: HttpError) -> bool:
     return exc.resp.status == 403 and b"quotaExceeded" in (exc.content or b"")
+
+
+def is_playlist_full(exc: HttpError) -> bool:
+    return exc.resp.status == 403 and b"playlistContainsMaximumNumberOfVideos" in (
+        exc.content or b""
+    )
 
 
 _DURATION_RE = re.compile(
@@ -167,12 +184,20 @@ def insert_playlist_item(
     return response["id"]
 
 
+def delete_playlist_item(client: Any, quota: Quota, playlist_item_id: str) -> None:
+    """Remove one entry from a playlist. Costs 50 units."""
+    request = client.playlistItems().delete(id=playlist_item_id)
+    _execute(request, quota, 50, "playlistItems.delete")
+
+
 def _execute(request: Any, quota: Quota, units: int, method: str) -> dict[str, Any]:
     try:
         response = request.execute()
     except HttpError as exc:
         if is_quota_exceeded(exc):
             raise QuotaExceeded(method) from exc
+        if is_playlist_full(exc):
+            raise PlaylistFull(f"{method}: {exc}") from exc
         raise ApiError(f"{method}: {exc}") from exc
     quota.charge(units, method)
     return response
