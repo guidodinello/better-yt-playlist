@@ -10,10 +10,11 @@ from support.fakes import FakeLastfm, FakeResolver
 from support.playlist import PLAYLIST, seed_playlist
 
 from better_yt_playlist import db
-from better_yt_playlist.lastfm import SimilarTrack, TrackInfo
+from better_yt_playlist.lastfm import SimilarArtist, SimilarTrack, TrackInfo
 from better_yt_playlist.match import set_manual
 from better_yt_playlist.similar import (
     AmbiguousSeed,
+    Basis,
     SeedError,
     YoutubeHit,
     discover,
@@ -169,12 +170,133 @@ def test_manual_correction_reads_a_fresh_cache_key(conn: sqlite3.Connection) -> 
         },
     )
     seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
-    assert [r.video_id for r in similar(conn, PLAYLIST, seed, api=api, limit=5, now=NOW)] == [
+    assert [r.video_id for r in similar(conn, PLAYLIST, seed, api=api, limit=1, now=NOW)] == [
         "vHello"
     ]
 
     set_manual(conn, "vLoser", "Beck", "Loser")
     seed = resolve_seed(conn, PLAYLIST, "vLoser", api=api)
-    assert [r.video_id for r in similar(conn, PLAYLIST, seed, api=api, limit=5, now=NOW)] == [
+    assert [r.video_id for r in similar(conn, PLAYLIST, seed, api=api, limit=1, now=NOW)] == [
         "vLost"
     ]
+
+
+def test_similar_fills_with_artist_similarity_when_no_track_data(
+    conn: sqlite3.Connection,
+) -> None:
+    # Real shape: Last.fm has no track.getSimilar data for the seed, but does
+    # for its artist (Zeballos → La Nueva Escuela, ...).
+    seed_playlist(
+        conn,
+        [
+            ("vZeb", "LO QUE SOY - ZEBALLOS", "Zeballos 17"),
+            ("vZeb2", "Zeballos - Otra", "x"),
+            ("vLNE", "La Nueva Escuela - Qué Dolor (Video Oficial)", "x"),
+        ],
+    )
+    for vid, artist, track in [
+        ("vZeb", "Zeballos", "Lo Que Soy"),
+        ("vZeb2", "Zeballos", "Otra"),
+        ("vLNE", "La Nueva Escuela", "Que Dolor"),
+    ]:
+        set_manual(conn, vid, artist, track)
+    api = FakeLastfm(
+        similar_artist_map={
+            "zeballos": [SimilarArtist("La Nueva Escuela", 0.8), SimilarArtist("Wos", 0.5)]
+        }
+    )
+    seed = resolve_seed(conn, PLAYLIST, "vZeb", api=api)
+
+    recs = similar(conn, PLAYLIST, seed, api=api, limit=10, now=NOW)
+
+    # Seed's own artist first (match 1.0), then similar artists; all artist-based.
+    assert [(r.video_id, r.match, r.basis) for r in recs] == [
+        ("vZeb2", 1.0, Basis.ARTIST),
+        ("vLNE", 0.8, Basis.ARTIST),
+    ]
+
+
+def test_track_results_come_before_artist_fill_without_duplicates(
+    conn: sqlite3.Connection,
+) -> None:
+    api = FakeLastfm(
+        known=[LOSER],
+        similar={("tame impala", "loser"): [_sim("Adele", "Hello", 0.5)]},
+        similar_artist_map={"tame impala": [SimilarArtist("Adele", 0.3)]},
+    )
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = similar(conn, PLAYLIST, seed, api=api, limit=10, now=NOW)
+    assert [(r.video_id, r.basis) for r in recs] == [
+        ("vHello", Basis.TRACK),
+        ("vLost", Basis.ARTIST),  # seed's own artist
+        ("vRoll", Basis.ARTIST),  # Adele, minus Hello already listed
+    ]
+
+
+def test_no_artist_fill_when_track_results_reach_the_limit(conn: sqlite3.Connection) -> None:
+    api = _api_with_similar(_sim("Adele", "Hello", 0.5))
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    similar(conn, PLAYLIST, seed, api=api, limit=1, now=NOW)
+    assert api.artist_calls == 0
+
+
+def test_discover_fills_with_one_top_track_per_similar_artist(conn: sqlite3.Connection) -> None:
+    api = FakeLastfm(
+        known=[LOSER],
+        similar_artist_map={
+            "tame impala": [SimilarArtist("MGMT", 0.9), SimilarArtist("Pond", 0.7)]
+        },
+        top={
+            "tame impala": [TrackInfo("Tame Impala", "Lost in Yesterday", None, None)],  # have it
+            "mgmt": [
+                TrackInfo("MGMT", "Electric Feel", None, None),
+                TrackInfo("MGMT", "Kids", None, None),
+            ],
+            "pond": [TrackInfo("Pond", "Sitting Up on Our Crane", None, None)],
+        },
+    )
+    resolver = FakeResolver(
+        hits={
+            "MGMT - Electric Feel": YoutubeHit("vMGMT", "t", "c"),
+            "MGMT - Kids": YoutubeHit("vKids", "t", "c"),
+            "Pond - Sitting Up on Our Crane": YoutubeHit("vPond", "t", "c"),
+        }
+    )
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=10, now=NOW)
+    assert [(r.video_id, r.match, r.basis) for r in recs] == [
+        ("vMGMT", 0.9, Basis.ARTIST),
+        ("vPond", 0.7, Basis.ARTIST),
+    ]
+
+
+def test_artist_calls_are_cached(conn: sqlite3.Connection) -> None:
+    api = FakeLastfm(known=[LOSER], similar_artist_map={"tame impala": [SimilarArtist("X", 0.5)]})
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    similar(conn, PLAYLIST, seed, api=api, limit=10, now=NOW)
+    similar(conn, PLAYLIST, seed, api=api, limit=10, now=NOW + timedelta(days=1))
+    assert api.artist_calls == 1
+
+
+def test_artist_fill_caps_songs_per_artist_before_leftovers(conn: sqlite3.Connection) -> None:
+    seed_playlist(
+        conn,
+        [
+            ("vRoll2", "Adele - Skyfall", "x"),
+            ("vLost2", "Tame Impala - Elephant", "x"),
+            ("vLost3", "Tame Impala - Borderline", "x"),
+        ],
+    )
+    set_manual(conn, "vRoll2", "Adele", "Skyfall")
+    set_manual(conn, "vLost2", "Tame Impala", "Elephant")
+    set_manual(conn, "vLost3", "Tame Impala", "Borderline")
+    api = FakeLastfm(
+        known=[LOSER], similar_artist_map={"tame impala": [SimilarArtist("Adele", 0.3)]}
+    )
+    seed = resolve_seed(conn, PLAYLIST, "vLoser", api=api)
+    recs = similar(conn, PLAYLIST, seed, api=api, limit=10, now=NOW)
+    # Two Tame Impala (match 1.0), two Adele (0.3), then the leftovers.
+    assert [(r.artist, r.match) for r in recs] == [
+        ("Tame Impala", 1.0), ("Tame Impala", 1.0), ("Adele", 0.3), ("Adele", 0.3),
+        ("Tame Impala", 1.0), ("Adele", 0.3),
+    ]  # fmt: skip

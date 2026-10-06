@@ -91,6 +91,16 @@ CREATE TABLE IF NOT EXISTS similar_tracks (
     PRIMARY KEY (seed_artist, seed_track, artist, track)
 );
 
+-- Artist-level Last.fm results (kind: similar | top_tracks) — the fallback
+-- when a song has no track-level similarity. payload is a JSON list.
+CREATE TABLE IF NOT EXISTS artist_cache (
+    kind       TEXT NOT NULL,
+    artist     TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    PRIMARY KEY (kind, artist)
+);
+
 -- yt-dlp search results for songs outside the playlist, keyed by normalized
 -- (artist, track). video_id NULL = searched, nothing found.
 CREATE TABLE IF NOT EXISTS youtube_lookups (

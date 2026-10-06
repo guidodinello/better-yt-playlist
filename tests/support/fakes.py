@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from better_yt_playlist.lastfm import LastfmApi, SimilarTrack, TrackInfo
+from better_yt_playlist.lastfm import LastfmApi, SimilarArtist, SimilarTrack, TrackInfo
 from better_yt_playlist.similar import YoutubeHit, YoutubeResolver
 from better_yt_playlist.titles import norm
 
@@ -22,8 +22,13 @@ class FakeLastfm:
     similar: dict[tuple[str, str], list[SimilarTrack]] = field(
         default_factory=dict[tuple[str, str], list[SimilarTrack]]
     )
+    similar_artist_map: dict[str, list[SimilarArtist]] = field(
+        default_factory=dict[str, list[SimilarArtist]]
+    )
+    top: dict[str, list[TrackInfo]] = field(default_factory=dict[str, list[TrackInfo]])
     info_calls: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
     similar_calls: int = 0
+    artist_calls: int = 0
 
     def track_info(self, artist: str, track: str) -> TrackInfo | None:
         self.info_calls.append((artist, track))
@@ -36,6 +41,14 @@ class FakeLastfm:
     def similar_tracks(self, artist: str, track: str, *, limit: int) -> list[SimilarTrack]:
         self.similar_calls += 1
         return self.similar.get(norm(artist, track), [])[:limit]
+
+    def similar_artists(self, artist: str, *, limit: int) -> list[SimilarArtist]:
+        self.artist_calls += 1
+        return self.similar_artist_map.get(norm(artist, "")[0], [])[:limit]
+
+    def top_tracks(self, artist: str, *, limit: int) -> list[TrackInfo]:
+        self.artist_calls += 1
+        return self.top.get(norm(artist, "")[0], [])[:limit]
 
 
 @dataclass(slots=True)

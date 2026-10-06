@@ -1,5 +1,5 @@
 # pyright: basic
-"""Thin Last.fm API client: similar tracks, track lookup, track search.
+"""Thin Last.fm API client: track lookup/search, similar tracks and artists, top tracks.
 
 Read-only methods that need only an API key (no user session). Responses are
 parsed here, at the edge, into small frozen dataclasses so the rest of the
@@ -71,11 +71,19 @@ class SimilarTrack:
     url: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class SimilarArtist:
+    name: str
+    match: float
+
+
 @runtime_checkable
 class LastfmApi(Protocol):
     def track_info(self, artist: str, track: str) -> TrackInfo | None: ...
     def search_track(self, query: str, *, limit: int = 5) -> list[TrackInfo]: ...
     def similar_tracks(self, artist: str, track: str, *, limit: int) -> list[SimilarTrack]: ...
+    def similar_artists(self, artist: str, *, limit: int) -> list[SimilarArtist]: ...
+    def top_tracks(self, artist: str, *, limit: int) -> list[TrackInfo]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +202,29 @@ class LastfmClient:
                 match=float(t["match"]),
                 mbid=t.get("mbid") or None,
                 url=t.get("url") or None,
+            )
+            for t in _as_list(items)
+        ]
+
+    def similar_artists(self, artist: str, *, limit: int) -> list[SimilarArtist]:
+        data = self._call("artist.getSimilar", artist=artist, autocorrect="1", limit=str(limit))
+        if data is None:
+            return []
+        items = data.get("similarartists", {}).get("artist", [])
+        return [SimilarArtist(name=a["name"], match=float(a["match"])) for a in _as_list(items)]
+
+    def top_tracks(self, artist: str, *, limit: int) -> list[TrackInfo]:
+        data = self._call("artist.getTopTracks", artist=artist, autocorrect="1", limit=str(limit))
+        if data is None:
+            return []
+        items = data.get("toptracks", {}).get("track", [])
+        return [
+            TrackInfo(
+                artist=_artist_name(t["artist"]),
+                track=t["name"],
+                mbid=t.get("mbid") or None,
+                url=t.get("url") or None,
+                listeners=_int_or_none(t.get("listeners")),
             )
             for t in _as_list(items)
         ]

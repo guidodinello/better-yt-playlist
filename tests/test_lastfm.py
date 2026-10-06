@@ -102,6 +102,26 @@ def test_search_track_reads_string_artist() -> None:
     assert (hit.artist, hit.track) == ("Miranda!", "Fantasmas")
 
 
+def test_similar_artists_and_top_tracks_parse() -> None:
+    # Shapes as returned live (2026-10-05).
+    transport = ScriptedTransport(
+        (200, {"similarartists": {"artist": [{"name": "Knak", "match": "1", "url": "u"}]}}),
+        (200, {"toptracks": {"track": [{"name": "La Rubia - Remix 2", "listeners": "18271",
+                                        "url": "u", "artist": {"name": "La Nueva Escuela"}}]}}),
+        (200, {"error": 6, "message": "The artist you supplied could not be found"}),
+    )  # fmt: skip
+    client = _client(transport)
+    [knak] = client.similar_artists("Zeballos", limit=5)
+    assert (knak.name, knak.match) == ("Knak", 1.0)
+    [top] = client.top_tracks("La Nueva Escuela", limit=5)
+    assert (top.artist, top.track, top.listeners) == (
+        "La Nueva Escuela",
+        "La Rubia - Remix 2",
+        18271,
+    )
+    assert client.top_tracks("Nobody", limit=5) == []
+
+
 def test_rate_limit_retries_with_backoff_then_succeeds() -> None:
     time = FakeTime()
     transport = ScriptedTransport(

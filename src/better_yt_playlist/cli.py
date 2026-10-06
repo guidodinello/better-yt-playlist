@@ -265,15 +265,18 @@ def _run_song_command(args: argparse.Namespace) -> None:
     rows = [
         (
             f"{r.match:.2f}",
+            r.basis,
             r.artist,
             r.track,
             f"https://youtu.be/{r.video_id}" if r.video_id else "",
         )
         for r in recs
     ]
-    sys.stdout.write(format_table(["match", "artist", "track", "youtube"], rows))
+    sys.stdout.write(format_table(["match", "via", "artist", "track", "youtube"], rows))
     if not recs:
         print("(nothing found)")
+    if any(r.basis == "artist" for r in recs):
+        print("\nvia artist: Last.fm has no track-level data here; picked by similar artists")
     print("\nSimilarity data: Last.fm")
 
 
