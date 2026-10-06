@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Song similarity via Last.fm: `byp match` maps playlist videos to a canonical
+  (artist, track) (`track_metadata` table, with `--set` manual overrides),
+  `byp similar` lists playlist songs similar to a seed song, and `byp discover`
+  lists similar songs outside the playlist, found on YouTube with yt-dlp (zero
+  API quota). When Last.fm has no track-level similarity for a song, both
+  fill in from artist similarity (`via artist`). Last.fm results are cached for
+  30 days. Needs `BYP_LASTFM_API_KEY`;
+  `BYP_SONGS_PLAYLIST` sets the default playlist
+- `docs/ROADMAP.md`, including the planned audio-embedding similarity pipeline
+
 ### Fixed
 - `sync` no longer overwrites a video's stored title, channel and metadata with
   YouTube's "Deleted video" / "Private video" placeholder once it becomes
