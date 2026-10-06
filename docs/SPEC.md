@@ -101,6 +101,9 @@ Long playlists accumulate `Deleted video` / `Private video` entries.
 rows still occupy positions during a reorder. Sync **soft-deletes**
 (sets `removed_at`) rows missing from a fetch rather than deleting them, so a
 transient API blip doesn't destroy local annotations.
+A dead entry gets `unavailable_at` set and keeps the title/metadata of its last
+sync while it was still available, rather than being overwritten with the
+placeholder, so the mirror remembers what a vanished video was.
 
 ## Stages
 
@@ -150,7 +153,8 @@ CREATE TABLE playlist_items (
     view_count       INTEGER,
     published_at     TEXT,   -- video's own upload date
     synced_at        TEXT NOT NULL,
-    removed_at       TEXT    -- soft delete
+    removed_at       TEXT,   -- soft delete
+    unavailable_at   TEXT    -- first sync that saw it deleted/private
 );
 CREATE TABLE target_order (
     playlist_id      TEXT NOT NULL,

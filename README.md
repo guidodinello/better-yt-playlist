@@ -58,10 +58,12 @@ byp reorder                 # apply up to --budget units today (default 9500)
 
 `playlist_item_id` (PK), `video_id`, `position`, `title`, `channel_title`,
 `channel_id`, `added_at`, `duration_s`, `description`, `tags` (JSON), `view_count`,
-`published_at`, `synced_at`, `removed_at`.
+`published_at`, `synced_at`, `removed_at`, `unavailable_at`.
 
-`channel_title` / `duration_s` etc. are `NULL` for deleted or private videos —
-those rows stay in the mirror (and keep their playlist slot). A row that
+Deleted or private videos have `unavailable_at` set (when a sync first saw them
+dead) — those rows stay in the mirror (and keep their playlist slot). They keep
+whatever title/channel/duration an earlier sync recorded; one first seen
+already dead only has YouTube's `Deleted video` / `Private video` placeholder. A row that
 disappears from the playlist between syncs gets a `removed_at` timestamp rather
 than being deleted.
 

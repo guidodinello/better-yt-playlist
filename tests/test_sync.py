@@ -113,6 +113,8 @@ def test_pagination_left_join_and_soft_delete(tmp_path, monkeypatch) -> None:
     assert rows["a"]["view_count"] == 1234
     assert rows["c"]["channel_title"] is None  # dead entry: left join misses
     assert rows["c"]["duration_s"] is None
+    assert rows["c"]["unavailable_at"] is not None
+    assert rows["a"]["unavailable_at"] is None
 
     pages2 = [{"items": [_pi("a", "v1", 0), _pi("c", "vdead", 1, owner=None)]}]
     sync("PL1", conn=conn, client=FakeClient(pages2, videos))
@@ -120,6 +122,56 @@ def test_pagination_left_join_and_soft_delete(tmp_path, monkeypatch) -> None:
     assert b["removed_at"] is not None
     a = conn.execute("SELECT removed_at FROM playlist_items WHERE playlist_item_id='a'").fetchone()
     assert a["removed_at"] is None
+
+
+def test_video_going_dead_keeps_last_known_metadata(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BYP_DB", str(tmp_path / "d.db"))
+    conn = db.connect()
+
+    sync(
+        "PL1", conn=conn, client=FakeClient([{"items": [_pi("a", "v1", 0)]}], {"v1": _video("v1")})
+    )
+
+    dead = _pi("a", "v1", 0, owner=None)
+    dead["snippet"]["title"] = "Deleted video"
+    stats = sync("PL1", conn=conn, client=FakeClient([{"items": [dead]}], {}))
+    assert stats["dead_entries"] == 1
+
+    row = conn.execute("SELECT * FROM playlist_items WHERE playlist_item_id='a'").fetchone()
+    assert row["title"] == "title-v1"
+    assert row["channel_title"] == "Chan"
+    assert row["duration_s"] == 60
+    first_seen_dead = row["unavailable_at"]
+    assert first_seen_dead is not None
+
+    sync("PL1", conn=conn, client=FakeClient([{"items": [dead]}], {}))
+    row = conn.execute("SELECT * FROM playlist_items WHERE playlist_item_id='a'").fetchone()
+    assert row["title"] == "title-v1"
+    assert row["unavailable_at"] == first_seen_dead  # keeps when it first went dead
+
+    # Owner makes it public again: fresh metadata wins and the flag clears.
+    sync(
+        "PL1",
+        conn=conn,
+        client=FakeClient([{"items": [_pi("a", "v1", 0)]}], {"v1": _video("v1", 99)}),
+    )
+    row = conn.execute("SELECT * FROM playlist_items WHERE playlist_item_id='a'").fetchone()
+    assert row["unavailable_at"] is None
+    assert row["duration_s"] == 99
+
+
+def test_migrate_adds_unavailable_at_to_old_db(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "old.db"
+    monkeypatch.setenv("BYP_DB", str(path))
+    import sqlite3
+
+    old = sqlite3.connect(path)
+    old.executescript(db.SCHEMA.replace(",\n    unavailable_at   TEXT", ""))
+    old.close()
+
+    conn = db.connect()
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(playlist_items)")}
+    assert "unavailable_at" in cols
 
 
 def test_quota_used_today_sums_recent_only(tmp_path, monkeypatch) -> None:
