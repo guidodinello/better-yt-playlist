@@ -54,6 +54,41 @@ byp reorder --dry-run       # list the moves without spending quota
 byp reorder                 # apply up to --budget units today (default 9500)
 ```
 
+### Songs: similar and discover (Last.fm)
+
+For a music playlist, `byp` can find songs *like* one you already have, using
+[Last.fm](https://www.last.fm)'s similarity data. You need a free API key
+(<https://www.last.fm/api/account/create>); no Last.fm account login is
+involved, and none of this spends YouTube API quota.
+
+```bash
+export BYP_LASTFM_API_KEY=...            # required
+export BYP_SONGS_PLAYLIST=PLxxxxxxxx     # default --playlist for the commands below
+
+byp sync "$BYP_SONGS_PLAYLIST"           # mirror it first
+byp match                                # map each video to a Last.fm (artist, track)
+byp match --retry                        # also retry ones not found last time
+byp match --set VIDEO_ID "Artist" "Track"   # fix one by hand; never overwritten
+
+byp similar "loser tame impala"          # songs in the playlist similar to that one
+byp discover "loser tame impala"         # similar songs NOT in it, with YouTube links
+byp discover vIdEoId --limit 5 --format json
+```
+
+The seed is a video id or any text in the song's title/artist/track; if it
+matches several songs you get the list to pick from. `discover` finds each
+recommendation on YouTube with a yt-dlp search (no quota). Similarity results
+are cached for 30 days and YouTube lookups indefinitely, so repeat runs are
+instant. "All songs by X" is a plain query once songs are matched:
+
+```bash
+byp query "SELECT p.title FROM playlist_items p JOIN track_metadata m USING (video_id)
+           WHERE m.artist = 'Tame Impala' AND p.removed_at IS NULL"
+```
+
+Similarity data: Last.fm. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's
+next (audio-based similarity).
+
 ### Columns in `playlist_items`
 
 `playlist_item_id` (PK), `video_id`, `position`, `title`, `channel_title`,

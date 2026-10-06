@@ -32,6 +32,7 @@ Thumbs.db
 client_secret*.json
 token.json
 token_*.json
+.lastfm.env
 *.db
 *.sqlite
 *.sqlite3

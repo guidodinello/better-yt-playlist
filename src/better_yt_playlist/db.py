@@ -57,6 +57,52 @@ CREATE TABLE IF NOT EXISTS import_state (
     value    TEXT NOT NULL
 );
 
+-- Curated (artist, track) identity per video, from `byp match`. Sync never
+-- touches it. status: matched | not_found | manual.
+CREATE TABLE IF NOT EXISTS track_metadata (
+    video_id   TEXT PRIMARY KEY,
+    artist     TEXT,
+    track      TEXT,
+    status     TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    lastfm_url TEXT,
+    mbid       TEXT,
+    matched_at TEXT NOT NULL
+);
+
+-- Last.fm similarity cache, keyed by the seed's normalized (artist, track) so
+-- duplicate uploads share it and a corrected match reads a fresh key.
+-- similar_fetches records when a seed was fetched, even if it had no results.
+CREATE TABLE IF NOT EXISTS similar_fetches (
+    seed_artist TEXT NOT NULL,
+    seed_track  TEXT NOT NULL,
+    fetched_at  TEXT NOT NULL,
+    PRIMARY KEY (seed_artist, seed_track)
+);
+
+CREATE TABLE IF NOT EXISTS similar_tracks (
+    seed_artist TEXT NOT NULL,
+    seed_track  TEXT NOT NULL,
+    artist      TEXT NOT NULL,
+    track       TEXT NOT NULL,
+    match       REAL NOT NULL,
+    mbid        TEXT,
+    lastfm_url  TEXT,
+    PRIMARY KEY (seed_artist, seed_track, artist, track)
+);
+
+-- yt-dlp search results for songs outside the playlist, keyed by normalized
+-- (artist, track). video_id NULL = searched, nothing found.
+CREATE TABLE IF NOT EXISTS youtube_lookups (
+    artist       TEXT NOT NULL,
+    track        TEXT NOT NULL,
+    video_id     TEXT,
+    title        TEXT,
+    channel      TEXT,
+    looked_up_at TEXT NOT NULL,
+    PRIMARY KEY (artist, track)
+);
+
 CREATE TABLE IF NOT EXISTS import_failures (
     target_playlist_id TEXT NOT NULL,
     video_id            TEXT NOT NULL,

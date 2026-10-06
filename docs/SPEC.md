@@ -19,6 +19,9 @@ source yet.
 Clustering by theme is **explicitly out of scope** for now — revisit once
 there is real data to look at.
 
+> Later work (Last.fm song similarity, the audio-embedding pipeline) is tracked
+> in [`ROADMAP.md`](ROADMAP.md).
+
 ## Verified facts this plan depends on
 
 Checked against Google's docs during planning, not recalled:
@@ -241,4 +244,3 @@ pytest is already in the dev group, so only the job and the tests are missing.
 - Creating per-cluster playlists. Note `playlistItems.insert` is also 50
   units, so this is *simpler* than reordering (no shift semantics), **not
   cheaper**.
-- Any yt-dlp fallback path.

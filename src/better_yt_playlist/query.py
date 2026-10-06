@@ -47,11 +47,11 @@ def run_query(sql: str, fmt: str = "table") -> None:
         writer.writerow(columns)
         writer.writerows(rows)
     else:
-        sys.stdout.write(_ascii_table(columns, rows))
+        sys.stdout.write(format_table(columns, rows))
         print(f"\n({len(rows)} row{'s' if len(rows) != 1 else ''})")
 
 
-def _ascii_table(columns: list[str], rows: list[tuple[Any, ...]]) -> str:
+def format_table(columns: list[str], rows: list[tuple[Any, ...]]) -> str:
     widths = [len(c) for c in columns]
     str_rows = [["" if v is None else str(v) for v in row] for row in rows]
     for row in str_rows:

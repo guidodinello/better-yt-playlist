@@ -45,3 +45,15 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 typeCheckingMode = "standard"
 strict = ["src/better_yt_playlist"]
 reportMissingTypeStubs = false
+# Lets pyright resolve the tests' `support.*` helpers the way pytest does
+# (rootdir-relative import of tests/).
+extraPaths = ["tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config", "-ra", "-m", "not live"]
+xfail_strict = true
+filterwarnings = ["error"]
+markers = [
+    "live: real network calls (Last.fm, yt-dlp) — opt in with `pytest -m live`",
+]

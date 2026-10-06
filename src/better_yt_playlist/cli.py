@@ -6,8 +6,12 @@
     byp reorder [--budget N]     push the target order to YouTube, a bit at a time
     byp reorder --status         show how many moves and days remain
     byp clean [--playlist ID]    delete duplicate and unavailable entries, a bit at a time
+    byp match                    map songs to Last.fm (artist, track)
+    byp similar "<song>"         songs in the playlist similar to one of them
+    byp discover "<song>"        similar songs not in the playlist, with YouTube links
 
-Paths are overridable with BYP_DB, BYP_CLIENT_SECRET, BYP_TOKEN.
+Paths are overridable with BYP_DB, BYP_CLIENT_SECRET, BYP_TOKEN. The song
+commands use BYP_SONGS_PLAYLIST (default playlist) and BYP_LASTFM_API_KEY.
 """
 
 from __future__ import annotations
@@ -96,7 +100,42 @@ def main() -> int:
         help="Playlist id to clean (default: $BYP_TARGET_PLAYLIST)",
     )
 
+    songs_default = os.environ.get("BYP_SONGS_PLAYLIST")
+    p_match = sub.add_parser("match", help="Map playlist songs to Last.fm (artist, track)")
+    p_match.add_argument("--playlist", default=songs_default, help="(default: $BYP_SONGS_PLAYLIST)")
+    p_match.add_argument(
+        "--retry", action="store_true", help="Also retry songs previously not found"
+    )
+    p_match.add_argument(
+        "--set",
+        nargs=3,
+        metavar=("VIDEO_ID", "ARTIST", "TRACK"),
+        help="Pin one video's artist/track by hand (never overwritten by match)",
+    )
+    for name, help_text in (
+        ("similar", "Songs in the playlist similar to a seed song (Last.fm)"),
+        ("discover", "Similar songs NOT in the playlist, found on YouTube (Last.fm + yt-dlp)"),
+    ):
+        p_rec = sub.add_parser(name, help=help_text)
+        p_rec.add_argument("seed", help="Video id, or text in the song's title/artist/track")
+        p_rec.add_argument(
+            "--playlist", default=songs_default, help="(default: $BYP_SONGS_PLAYLIST)"
+        )
+        p_rec.add_argument("--limit", type=int, default=10)
+        p_rec.add_argument("--format", choices=("table", "json"), default="table", dest="fmt")
+
     args = parser.parse_args()
+
+    if args.command in ("match", "similar", "discover"):
+        if not args.playlist:
+            raise SystemExit("no playlist — pass --playlist or set BYP_SONGS_PLAYLIST")
+        from .lastfm import LastfmError
+
+        try:
+            _run_song_command(args)
+        except LastfmError as exc:
+            raise SystemExit(f"Last.fm: {exc}") from exc
+        return 0
 
     if args.command == "sync":
         from .sync import sync
@@ -172,6 +211,70 @@ def main() -> int:
         clean(args.playlist)
 
     return 0
+
+
+def _run_song_command(args: argparse.Namespace) -> None:
+    from .db import connect
+
+    conn = connect()
+    if args.command == "match":
+        from .match import match_playlist, set_manual
+
+        if args.set:
+            set_manual(conn, *args.set)
+            logger.info("pinned %s as %s — %s", *args.set)
+            return
+        stats = match_playlist(args.playlist, retry=args.retry, conn=conn)
+        logger.info("matched %d, not found %d", stats.matched, stats.not_found)
+        for line in stats.unmatched_titles:
+            logger.info("  not found: %s", line)
+        if stats.unmatched_titles:
+            logger.info('fix one with: byp match --set VIDEO_ID "Artist" "Track"')
+        return
+
+    import json
+    import sys
+    from dataclasses import asdict
+
+    from .lastfm import LastfmClient
+    from .query import format_table
+    from .similar import AmbiguousSeed, SeedError, YtDlpResolver, discover, resolve_seed, similar
+
+    api = LastfmClient.from_env()
+    try:
+        seed = resolve_seed(conn, args.playlist, args.seed, api=api)
+    except AmbiguousSeed as exc:
+        lines = "\n".join(f"  {vid}  {title}" for vid, title in exc.candidates[:20])
+        raise SystemExit(f"{exc} — be more specific, or pass a video id:\n{lines}") from exc
+    except SeedError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if args.command == "similar":
+        recs = similar(conn, args.playlist, seed, api=api, limit=args.limit)
+    else:
+        recs = discover(
+            conn, args.playlist, seed, api=api, resolver=YtDlpResolver(), limit=args.limit
+        )
+
+    if args.fmt == "json":
+        payload = {"seed": asdict(seed), "results": [asdict(r) for r in recs]}
+        json.dump(payload, sys.stdout, indent=2, ensure_ascii=False)
+        sys.stdout.write("\n")
+        return
+    print(f"Seed: {seed.artist} — {seed.track}\n")
+    rows = [
+        (
+            f"{r.match:.2f}",
+            r.artist,
+            r.track,
+            f"https://youtu.be/{r.video_id}" if r.video_id else "",
+        )
+        for r in recs
+    ]
+    sys.stdout.write(format_table(["match", "artist", "track", "youtube"], rows))
+    if not recs:
+        print("(nothing found)")
+    print("\nSimilarity data: Last.fm")
 
 
 if __name__ == "__main__":
