@@ -21,7 +21,13 @@ from typing import Any
 
 from .auth import AuthRequiredError, get_client
 from .db import DAILY_QUOTA, Quota, connect
-from .youtube import ApiError, PlaylistFull, QuotaExceeded, insert_playlist_item
+from .youtube import (
+    ApiError,
+    PlaylistFull,
+    PlaylistNotFound,
+    QuotaExceeded,
+    insert_playlist_item,
+)
 
 logger = logging.getLogger("byp")
 
@@ -70,23 +76,26 @@ def import_remaining(
         if r[0] not in imported_ids and r[0] not in failed_ids
     ]
 
+    already = len(wl_ids & imported_ids)
+
     if not remaining:
         logger.info("nothing to import — all Watch Later videos are already imported.")
         return {
             "total": len(wl_ids),
-            "already": len(imported_ids),
+            "already": already,
             "imported": 0,
             "skipped": 0,
+            "failed": len(wl_ids & failed_ids),
         }
 
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     imported = 0
     skipped = 0
     idx = 0
-    full = False
+    stop = False
 
     for project in PROJECTS:
-        if full or idx >= len(remaining):
+        if stop or idx >= len(remaining):
             break
 
         quota = Quota(conn, project=project)
@@ -131,7 +140,17 @@ def import_remaining(
                     "target playlist is full (YouTube's 5,000-item cap) — stopping; "
                     "free room with `byp clean` or remove items, then re-run."
                 )
-                full = True
+                stop = True
+                break
+            except PlaylistNotFound:
+                # Also not this video's fault — recording it would block a video
+                # that may be perfectly fine from ever being imported.
+                logger.warning(
+                    "target playlist %s not found — stopping; check BYP_TARGET_PLAYLIST "
+                    "and that the playlist still exists, then re-run.",
+                    target_playlist_id,
+                )
+                stop = True
                 break
             except ApiError as exc:
                 # YouTube rejected this video outright (dead/private/region-locked) —
@@ -160,9 +179,15 @@ def import_remaining(
         skipped,
         len(remaining) - imported - skipped,
     )
+    failed_now = conn.execute(
+        "SELECT COUNT(*) FROM import_failures WHERE target_playlist_id = ? AND video_id IN "
+        "(SELECT video_id FROM playlist_items WHERE playlist_id = ?)",
+        (target_playlist_id, WL_PLAYLIST_ID),
+    ).fetchone()[0]
     return {
         "total": len(wl_ids),
-        "already": len(imported_ids),
+        "already": already,
         "imported": imported,
         "skipped": skipped,
+        "failed": failed_now,
     }

@@ -160,7 +160,8 @@ def main() -> int:
 
         stats = import_remaining(args.target_playlist)
         logger.info(
-            "imported %(imported)d (already %(already)d, skipped %(skipped)d) of %(total)d videos",
+            "imported %(imported)d (already %(already)d, skipped %(skipped)d) of %(total)d "
+            "Watch Later videos; %(failed)d permanently failed",
             stats,
         )
     elif args.command == "clean":

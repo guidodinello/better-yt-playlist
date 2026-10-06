@@ -44,6 +44,14 @@ class PlaylistFull(ApiError):
     """
 
 
+class PlaylistNotFound(ApiError):
+    """YouTube could not find the target playlist for this request.
+
+    Like :class:`PlaylistFull` this is about the playlist, not the video: every
+    insert in the run would fail the same way, and the video itself may be fine.
+    """
+
+
 def is_quota_exceeded(exc: HttpError) -> bool:
     return exc.resp.status == 403 and b"quotaExceeded" in (exc.content or b"")
 
@@ -52,6 +60,10 @@ def is_playlist_full(exc: HttpError) -> bool:
     return exc.resp.status == 403 and b"playlistContainsMaximumNumberOfVideos" in (
         exc.content or b""
     )
+
+
+def is_playlist_not_found(exc: HttpError) -> bool:
+    return exc.resp.status == 404 and b"playlistNotFound" in (exc.content or b"")
 
 
 _DURATION_RE = re.compile(
@@ -198,6 +210,8 @@ def _execute(request: Any, quota: Quota, units: int, method: str) -> dict[str, A
             raise QuotaExceeded(method) from exc
         if is_playlist_full(exc):
             raise PlaylistFull(f"{method}: {exc}") from exc
+        if is_playlist_not_found(exc):
+            raise PlaylistNotFound(f"{method}: {exc}") from exc
         raise ApiError(f"{method}: {exc}") from exc
     quota.charge(units, method)
     return response

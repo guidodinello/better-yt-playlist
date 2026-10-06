@@ -124,3 +124,61 @@ def test_full_playlist_stops_run_without_marking_videos_failed(
     assert result["imported"] == 0
     assert fake.insert_calls == ["v1"]  # one rejection is enough to stop, on every project
     assert conn.execute("SELECT count(*) FROM import_failures").fetchone()[0] == 0
+
+
+def test_missing_playlist_stops_run_without_marking_videos_failed(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("BYP_DB", str(tmp_path / "wl.db"))
+    conn = db.connect()
+    _seed_wl(conn, ["v1", "v2", "v3"])
+
+    missing = HttpError(
+        _Resp(404),  # type: ignore[arg-type]
+        b'{"error": {"errors": [{"reason": "playlistNotFound"}]}}',
+    )
+
+    class MissingFake(InsertFake):
+        def insert(self, *, part: str, body: Json) -> _Req | _Raiser:  # noqa: A003
+            self.insert_calls.append(str(body["snippet"]["resourceId"]["videoId"]))
+            return _Raiser(missing)
+
+    fake = MissingFake()
+    monkeypatch.setattr(
+        "better_yt_playlist.import_wl_to_yt.get_client", lambda project="default": fake
+    )
+
+    result = import_remaining(TARGET, conn=conn)
+    assert result["imported"] == 0
+    assert fake.insert_calls == ["v1"]
+    assert conn.execute("SELECT count(*) FROM import_failures").fetchone()[0] == 0
+
+
+def test_summary_counts_only_watch_later_videos(tmp_path: Any, monkeypatch: Any) -> None:
+    monkeypatch.setenv("BYP_DB", str(tmp_path / "wl.db"))
+    conn = db.connect()
+    _seed_wl(conn, ["in1", "dead1", "new1"])
+    # Already in the target: one Watch Later video, plus one added from elsewhere.
+    conn.executemany(
+        "INSERT INTO playlist_items "
+        "(playlist_item_id, playlist_id, video_id, position, synced_at) "
+        "VALUES (?, ?, ?, 0, 'now')",
+        [(f"{TARGET}-in1", TARGET, "in1"), (f"{TARGET}-other", TARGET, "other")],
+    )
+    conn.commit()
+
+    fake = InsertFake(dead={"dead1"})
+    monkeypatch.setattr(
+        "better_yt_playlist.import_wl_to_yt.get_client", lambda project="default": fake
+    )
+
+    result = import_remaining(TARGET, conn=conn)
+    assert result == {"total": 3, "already": 1, "imported": 1, "skipped": 1, "failed": 1}
+
+    assert import_remaining(TARGET, conn=conn) == {
+        "total": 3,
+        "already": 2,
+        "imported": 0,
+        "skipped": 0,
+        "failed": 1,
+    }

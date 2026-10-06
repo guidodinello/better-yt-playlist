@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `import-wl-to-yt` no longer records a "playlist not found" rejection as a
+  permanent per-video failure; it stops the run instead, since the error is about
+  the target playlist and the video may be fine
+- `import-wl-to-yt`'s summary now counts only Watch Later videos as "already"
+  imported (it used to include anything else in the target playlist) and reports
+  how many are permanently failed
 - `import-wl-to-yt` no longer records YouTube's "playlist contains maximum
   number of items" rejection as a permanent per-video failure; it stops the run
   instead, so those videos are retried once the playlist has room
