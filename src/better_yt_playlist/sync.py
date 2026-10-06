@@ -14,25 +14,30 @@ _UPSERT = """
 INSERT INTO playlist_items (
     playlist_item_id, playlist_id, video_id, position, title, channel_title,
     channel_id, added_at, duration_s, description, tags, view_count,
-    published_at, synced_at, removed_at
+    published_at, synced_at, removed_at, unavailable_at
 ) VALUES (
     :playlist_item_id, :playlist_id, :video_id, :position, :title, :channel_title,
     :channel_id, :added_at, :duration_s, :description, :tags, :view_count,
-    :published_at, :synced_at, NULL
+    :published_at, :synced_at, NULL, :unavailable_at
 )
 ON CONFLICT(playlist_item_id) DO UPDATE SET
     position     = excluded.position,
-    title        = excluded.title,
-    channel_title= excluded.channel_title,
-    channel_id   = excluded.channel_id,
     added_at     = excluded.added_at,
-    duration_s   = excluded.duration_s,
-    description  = excluded.description,
-    tags         = excluded.tags,
-    view_count   = excluded.view_count,
-    published_at = excluded.published_at,
     synced_at    = excluded.synced_at,
-    removed_at   = NULL
+    removed_at   = NULL,
+    -- A deleted/private video comes back titled "Deleted video" with no
+    -- metadata; keep what an earlier sync saw instead of overwriting it.
+    title        = IIF(excluded.unavailable_at IS NULL, excluded.title, title),
+    channel_title= IIF(excluded.unavailable_at IS NULL, excluded.channel_title, channel_title),
+    channel_id   = IIF(excluded.unavailable_at IS NULL, excluded.channel_id, channel_id),
+    duration_s   = IIF(excluded.unavailable_at IS NULL, excluded.duration_s, duration_s),
+    description  = IIF(excluded.unavailable_at IS NULL, excluded.description, description),
+    tags         = IIF(excluded.unavailable_at IS NULL, excluded.tags, tags),
+    view_count   = IIF(excluded.unavailable_at IS NULL, excluded.view_count, view_count),
+    published_at = IIF(excluded.unavailable_at IS NULL, excluded.published_at, published_at),
+    unavailable_at = IIF(
+        excluded.unavailable_at IS NULL, NULL, COALESCE(unavailable_at, excluded.unavailable_at)
+    )
 """
 
 
@@ -72,6 +77,8 @@ def _row(
         "view_count": int(view_count) if view_count is not None else None,
         "published_at": v_snippet.get("publishedAt"),
         "synced_at": now,
+        # videos.list omits deleted / private videos — that is the signal.
+        "unavailable_at": None if video else now,
     }
 
 
@@ -97,7 +104,7 @@ def sync(
     for item in items:
         row = _row(item, playlist_id, videos, now)
         seen.append(row["playlist_item_id"])
-        dead += row["video_id"] not in videos
+        dead += row["unavailable_at"] is not None
         conn.execute(_UPSERT, row)
 
     placeholders = ",".join("?" * len(seen)) or "NULL"

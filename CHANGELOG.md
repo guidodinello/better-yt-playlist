@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `sync` no longer overwrites a video's stored title, channel and metadata with
+  YouTube's "Deleted video" / "Private video" placeholder once it becomes
+  unavailable; such rows are now flagged with a new `unavailable_at` column
 - `import-wl-to-yt` no longer records a "playlist not found" rejection as a
   permanent per-video failure; it stops the run instead, since the error is about
   the target playlist and the video may be fine

@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS playlist_items (
     view_count       INTEGER,
     published_at     TEXT,
     synced_at        TEXT NOT NULL,
-    removed_at       TEXT
+    removed_at       TEXT,
+    unavailable_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS target_order (
@@ -75,6 +76,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(quota_log)")}
     if "project" not in columns:
         conn.execute("ALTER TABLE quota_log ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
+        conn.commit()
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(playlist_items)")}
+    if "unavailable_at" not in columns:
+        conn.execute("ALTER TABLE playlist_items ADD COLUMN unavailable_at TEXT")
         conn.commit()
 
 
