@@ -11,7 +11,14 @@ collaborative: "listeners who like X also like Y", from Last.fm's
 obscure tracks (slowed/sped-up edits, small uploaders), where Last.fm has no
 data and the commands return nothing.
 
-## Stage B — audio-embedding similarity
+## Stage B — audio-embedding similarity (deferred)
+
+**Deferred (2026-10-07).** A coverage run over all 714 identified songs found
+Last.fm gives 69% of them track-level similar songs already in the playlist
+(54% with five or more), 23% only the artist fallback, and 8% nothing. With
+~92% covered, Stage B would serve the ~8% plus the unmatched songs — not worth
+the pipeline and ToS cost yet. Revisit if the artist-fallback results (23%)
+feel weak in practice.
 
 "Sounds like" similarity (tempo, timbre, energy, mood) from the audio itself,
 to cover what Stage A can't: tracks Last.fm doesn't know, and "more with this
@@ -62,9 +69,12 @@ Discogs-EffNet — after checking its license and expected input; whether to
 embed excerpts or full tracks; whether the heavy deps (torch/essentia) live in
 an optional dependency group.
 
-## Stage C — the "play" wrapper
+## Stage C — the "play" wrapper ✅
 
-A front end over A/B: "play songs similar to this one", "play everything by
-X". Likely output: a queue of watch URLs, or a temporary YouTube playlist
-(`playlistItems.insert` is 50 quota units per song, so a ~20-song queue costs
-~1,000 units).
+`byp play` (see the README): a seed song then its similar playlist songs
+(optionally mixed with `--new N` from `discover`), or `--artist`'s songs, as one
+`watch_videos?video_ids=…` link. Chosen over a temporary YouTube playlist
+because it spends no quota and needs no OAuth (a playlist would cost 50 units
+per song). The endpoint is undocumented and caps at 50 ids (verified: 51+
+returns the same list as 50), so the queue is capped there and per-song links
+are printed as a fallback.

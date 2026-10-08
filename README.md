@@ -83,7 +83,31 @@ marked `via artist` in the output. That fallback is unreliable for artist
 names shared by several acts (Last.fm merges them into one profile). `discover` finds each
 recommendation on YouTube with a yt-dlp search (no quota). Similarity results
 are cached for 30 days and YouTube lookups indefinitely, so repeat runs are
-instant. "All songs by X" is a plain query once songs are matched:
+instant.
+
+#### Play: a watch queue from a song or an artist
+
+`byp play` turns those results into one YouTube link that plays them in order
+(`watch_videos?video_ids=…`, which YouTube opens as a temporary, unsaved
+playlist). No login and no API quota.
+
+```bash
+byp play "loser tame impala"             # the song, then similar playlist songs
+byp play "loser" --new 5                 # mix in 5 similar songs you don't have yet
+byp play --artist "Tame Impala"          # the playlist's songs by an artist
+byp play "loser" --limit 40 --shuffle --open   # longer, shuffled, opened in the browser
+```
+
+`--shuffle` keeps the seed first and shuffles the best matches after it; with
+`--artist` it picks from all of the artist's songs.
+
+The queue is 25 songs by default and at most 50: the endpoint silently drops
+every id past the 50th. It's undocumented, so each song's own link is printed
+too. `--new` songs come from `discover` (a yt-dlp search per song the first
+time, so slower). `--artist` matches the full credit or its first-listed name
+— a song credited "Dua Lipa, Tame Impala" is found by "Dua Lipa" only.
+
+To just list an artist's songs, query the mirror once songs are matched:
 
 ```bash
 byp query "SELECT p.title FROM playlist_items p JOIN track_metadata m USING (video_id)
