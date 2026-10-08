@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   30 days. Needs `BYP_LASTFM_API_KEY`;
   `BYP_SONGS_PLAYLIST` sets the default playlist
 - `docs/ROADMAP.md`, including the planned audio-embedding similarity pipeline
+- `byp play`: a single YouTube watch link (no API quota) that plays a seed song
+  followed by similar playlist songs, optionally mixed with `--new N` songs from
+  `discover`, or (`--artist`) the playlist's songs by an artist. `--limit`
+  (default 25, max 50), `--shuffle`, `--open`
 
 ### Fixed
 - `sync` no longer overwrites a video's stored title, channel and metadata with

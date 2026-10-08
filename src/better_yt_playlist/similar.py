@@ -314,6 +314,18 @@ def _playlist_index(conn: sqlite3.Connection, playlist_id: str) -> _PlaylistInde
     return index
 
 
+def songs_by_artist(
+    conn: sqlite3.Connection, playlist_id: str, artist: str
+) -> list[Recommendation]:
+    """Matched playlist songs credited to ``artist``, in playlist order.
+
+    Matches the full credit or its first-listed name (see ``artist_candidates``),
+    so "Dua Lipa, Tame Impala" is found by "Dua Lipa" but not "Tame Impala".
+    """
+    songs = _playlist_index(conn, playlist_id).by_artist.get(_artist_key(artist), [])
+    return [Recommendation(a, t, 1.0, None, video_id, title) for video_id, title, a, t in songs]
+
+
 def similar(
     conn: sqlite3.Connection,
     playlist_id: str,

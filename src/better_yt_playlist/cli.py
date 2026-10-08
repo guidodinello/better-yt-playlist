@@ -9,6 +9,8 @@
     byp match                    map songs to Last.fm (artist, track)
     byp similar "<song>"         songs in the playlist similar to one of them
     byp discover "<song>"        similar songs not in the playlist, with YouTube links
+    byp play "<song>"            a watch link: the song, then similar ones (no quota)
+    byp play --artist "<name>"   a watch link of the playlist's songs by an artist
 
 Paths are overridable with BYP_DB, BYP_CLIENT_SECRET, BYP_TOKEN. The song
 commands use BYP_SONGS_PLAYLIST (default playlist) and BYP_LASTFM_API_KEY.
@@ -19,8 +21,15 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from . import __version__
+
+if TYPE_CHECKING:
+    import sqlite3
+
+    from .lastfm import LastfmApi
+    from .similar import Seed
 
 logger = logging.getLogger("byp")
 
@@ -124,7 +133,41 @@ def main() -> int:
         p_rec.add_argument("--limit", type=int, default=10)
         p_rec.add_argument("--format", choices=("table", "json"), default="table", dest="fmt")
 
+    p_play = sub.add_parser(
+        "play", help="A YouTube watch link: a song then similar ones, or an artist's songs"
+    )
+    p_play.add_argument(
+        "seed", nargs="?", help="Video id, or text in the song's title/artist/track"
+    )
+    p_play.add_argument("--artist", help="Play the playlist's songs by this artist instead")
+    p_play.add_argument("--playlist", default=songs_default, help="(default: $BYP_SONGS_PLAYLIST)")
+    p_play.add_argument(
+        "--limit", type=int, default=25, help="Queue length, seed included (YouTube caps it at 50)"
+    )
+    p_play.add_argument(
+        "--new", type=int, default=0, metavar="N", help="Mix in N similar songs not in the playlist"
+    )
+    p_play.add_argument("--shuffle", action="store_true", help="Shuffle all but the seed")
+    p_play.add_argument("--open", action="store_true", help="Open the link in the browser")
+
     args = parser.parse_args()
+
+    if args.command == "play":
+        if not args.playlist:
+            raise SystemExit("no playlist — pass --playlist or set BYP_SONGS_PLAYLIST")
+        if (args.seed is None) == (args.artist is None):
+            raise SystemExit("pass either a seed song or --artist")
+        if args.artist and args.new:
+            raise SystemExit("--new needs a seed song")
+        if args.limit < 1 or args.new < 0:
+            raise SystemExit("--limit must be at least 1 and --new can't be negative")
+        from .lastfm import LastfmError
+
+        try:
+            _run_play(args)
+        except LastfmError as exc:
+            raise SystemExit(f"Last.fm: {exc}") from exc
+        return 0
 
     if args.command in ("match", "similar", "discover"):
         if not args.playlist:
@@ -238,16 +281,10 @@ def _run_song_command(args: argparse.Namespace) -> None:
 
     from .lastfm import LastfmClient
     from .query import format_table
-    from .similar import AmbiguousSeed, SeedError, YtDlpResolver, discover, resolve_seed, similar
+    from .similar import YtDlpResolver, discover, similar
 
     api = LastfmClient.from_env()
-    try:
-        seed = resolve_seed(conn, args.playlist, args.seed, api=api)
-    except AmbiguousSeed as exc:
-        lines = "\n".join(f"  {vid}  {title}" for vid, title in exc.candidates[:20])
-        raise SystemExit(f"{exc} — be more specific, or pass a video id:\n{lines}") from exc
-    except SeedError as exc:
-        raise SystemExit(str(exc)) from exc
+    seed = _resolve_seed_or_exit(conn, args.playlist, args.seed, api)
 
     if args.command == "similar":
         recs = similar(conn, args.playlist, seed, api=api, limit=args.limit)
@@ -278,6 +315,75 @@ def _run_song_command(args: argparse.Namespace) -> None:
     if any(r.basis == "artist" for r in recs):
         print("\nvia artist: Last.fm has no track-level data here; picked by similar artists")
     print("\nSimilarity data: Last.fm")
+
+
+def _resolve_seed_or_exit(
+    conn: sqlite3.Connection, playlist_id: str, query: str, api: LastfmApi
+) -> Seed:
+    from .similar import AmbiguousSeed, SeedError, resolve_seed
+
+    try:
+        return resolve_seed(conn, playlist_id, query, api=api)
+    except AmbiguousSeed as exc:
+        lines = "\n".join(f"  {vid}  {title}" for vid, title in exc.candidates[:20])
+        raise SystemExit(f"{exc} — be more specific, or pass a video id:\n{lines}") from exc
+    except SeedError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _run_play(args: argparse.Namespace) -> None:
+    import sys
+    import webbrowser
+
+    from .db import connect
+    from .play import (
+        WATCH_VIDEOS_MAX,
+        QueueEntry,
+        Reason,
+        build_queue,
+        from_similar,
+        seed_entry,
+        tagged,
+        watch_url,
+    )
+    from .query import format_table
+    from .similar import songs_by_artist
+
+    conn = connect()
+    if args.limit > WATCH_VIDEOS_MAX:
+        logger.info("YouTube plays at most %d videos per link; capping --limit", WATCH_VIDEOS_MAX)
+    limit = min(args.limit, WATCH_VIDEOS_MAX)
+
+    head: list[QueueEntry] = []
+    extra: list[QueueEntry] = []
+    if args.artist:
+        main = tagged(songs_by_artist(conn, args.playlist, args.artist), Reason.BY_ARTIST)
+        if not main:
+            raise SystemExit(f"no matched songs by {args.artist!r} in the playlist — run byp match")
+    else:
+        from .lastfm import LastfmClient
+        from .similar import YtDlpResolver, discover, similar
+
+        api = LastfmClient.from_env()
+        seed = _resolve_seed_or_exit(conn, args.playlist, args.seed, api)
+        head = [seed_entry(seed)]
+        main = from_similar(similar(conn, args.playlist, seed, api=api, limit=limit - 1))
+        if args.new:
+            new = discover(
+                conn, args.playlist, seed, api=api, resolver=YtDlpResolver(), limit=args.new
+            )
+            extra = tagged(new, Reason.NEW)
+
+    queue = build_queue(head, main, extra, limit=limit, shuffle=args.shuffle)
+    rows = [
+        (str(i), e.reason, e.artist, e.track, f"https://youtu.be/{e.video_id}")
+        for i, e in enumerate(queue, 1)
+    ]
+    sys.stdout.write(format_table(["#", "via", "artist", "track", "youtube"], rows))
+    url = watch_url([e.video_id for e in queue])
+    print(f"\nPlay ({len(queue)} songs): {url}")
+    if args.open:
+        webbrowser.open(url)
 
 
 if __name__ == "__main__":
