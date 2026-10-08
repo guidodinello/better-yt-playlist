@@ -9,7 +9,6 @@ printed too as a fallback.
 
 from __future__ import annotations
 
-import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -55,16 +54,12 @@ def build_queue(
     extra: Sequence[QueueEntry] = (),
     *,
     limit: int,
-    shuffle: bool = False,
-    rng: random.Random | None = None,
 ) -> list[QueueEntry]:
     """``head`` first, then ``main`` with ``extra`` spread evenly through it.
 
     At most ``limit`` entries (and never more than WATCH_VIDEOS_MAX), each
     video once. ``extra`` keeps all its entries that fit; ``main`` is trimmed
-    from the tail — it's ordered best first. ``shuffle`` reorders everything
-    after ``head`` once the cut is made, so it shuffles the best songs rather
-    than picking random ones.
+    from the tail — it's ordered best first.
     """
     limit = min(limit, WATCH_VIDEOS_MAX)
     seen: set[str] = set()
@@ -79,21 +74,18 @@ def build_queue(
 
     first = fresh(head)[:limit]
     room = limit - len(first)
-    rest_main, rest_extra = fresh(main), fresh(extra)
-    rest_extra = rest_extra[:room]
-    rest_main = rest_main[: room - len(rest_extra)]
-    rest = _interleave(rest_main, rest_extra)
-    if shuffle:
-        (rng or random.Random()).shuffle(rest)
-    return first + rest
+    rest_extra = fresh(extra)[:room]
+    rest_main = fresh(main)[: room - len(rest_extra)]
+    return first + _interleave(rest_main, rest_extra)
 
 
 def _interleave(main: list[QueueEntry], extra: list[QueueEntry]) -> list[QueueEntry]:
     """``extra`` spread evenly through ``main``, both keeping their order."""
     out = list(main)
-    # Insert back to front so the earlier insertion points stay valid.
+    # Rounded up, so a short ``main`` still leads with its best entry. Inserted
+    # back to front so the earlier insertion points stay valid.
     for i in reversed(range(len(extra))):
-        out.insert((i + 1) * len(main) // (len(extra) + 1), extra[i])
+        out.insert(-(-(i + 1) * len(main) // (len(extra) + 1)), extra[i])
     return out
 
 

@@ -332,6 +332,7 @@ def _resolve_seed_or_exit(
 
 
 def _run_play(args: argparse.Namespace) -> None:
+    import random
     import sys
     import webbrowser
 
@@ -360,6 +361,8 @@ def _run_play(args: argparse.Namespace) -> None:
         main = tagged(songs_by_artist(conn, args.playlist, args.artist), Reason.BY_ARTIST)
         if not main:
             raise SystemExit(f"no matched songs by {args.artist!r} in the playlist — run byp match")
+        if args.shuffle:  # unranked: shuffle before the cut so any of their songs can play
+            random.shuffle(main)
     else:
         from .lastfm import LastfmClient
         from .similar import YtDlpResolver, discover, similar
@@ -370,11 +373,20 @@ def _run_play(args: argparse.Namespace) -> None:
         main = from_similar(similar(conn, args.playlist, seed, api=api, limit=limit - 1))
         if args.new:
             new = discover(
-                conn, args.playlist, seed, api=api, resolver=YtDlpResolver(), limit=args.new
+                conn,
+                args.playlist,
+                seed,
+                api=api,
+                resolver=YtDlpResolver(),
+                limit=min(args.new, limit - 1),  # each is a yt-dlp search; don't fetch extras
             )
             extra = tagged(new, Reason.NEW)
 
-    queue = build_queue(head, main, extra, limit=limit, shuffle=args.shuffle)
+    queue = build_queue(head, main, extra, limit=limit)
+    if args.shuffle and head:  # ranked: shuffle after the cut so the best songs still play
+        rest = queue[len(head) :]
+        random.shuffle(rest)
+        queue[len(head) :] = rest
     rows = [
         (str(i), e.reason, e.artist, e.track, f"https://youtu.be/{e.video_id}")
         for i, e in enumerate(queue, 1)

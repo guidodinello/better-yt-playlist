@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import random
 import sqlite3
 
 import pytest
@@ -71,13 +70,9 @@ def test_never_longer_than_youtube_plays() -> None:
     assert len(build_queue(SEED, main, limit=500)) == WATCH_VIDEOS_MAX
 
 
-def test_shuffle_keeps_the_seed_first_and_the_same_songs() -> None:
-    main = [_e(f"m{i}") for i in range(20)]
-    queue = build_queue(SEED, main, limit=11, shuffle=True, rng=random.Random(1))
-    assert queue[0].video_id == "seed"
-    # Shuffles the best 10, rather than sampling 10 of the 20.
-    assert sorted(_ids(queue[1:])) == sorted(f"m{i}" for i in range(10))
-    assert _ids(queue[1:]) != [f"m{i}" for i in range(10)]
+def test_new_songs_survive_overlap_with_similar() -> None:
+    queue = build_queue(SEED, [_e("a"), _e("n0"), _e("b")], [_e("n0", Reason.NEW)], limit=3)
+    assert [(e.video_id, e.reason) for e in queue][1:] == [("a", Reason.TRACK), ("n0", Reason.NEW)]
 
 
 def test_from_similar_tags_by_basis_and_skips_songs_without_a_video() -> None:
