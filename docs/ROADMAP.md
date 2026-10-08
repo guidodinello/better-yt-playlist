@@ -78,3 +78,13 @@ because it spends no quota and needs no OAuth (a playlist would cost 50 units
 per song). The endpoint is undocumented and caps at 50 ids (verified: 51+
 returns the same list as 50), so the queue is capped there and per-song links
 are printed as a fallback.
+
+## Smaller follow-ups
+
+- **Find featured artists.** The playlist's artist index (`_playlist_index` in
+  `similar.py`) files a song only under its full credit and the first-listed
+  name (`titles.artist_candidates`). So "Dua Lipa, Tame Impala" is found by
+  "Dua Lipa" but not "Tame Impala", both in `byp play --artist` and in the
+  similar-artist fallback of `similar`. Index every credited name instead.
+  Splitting on `&`/`and`/`x` breaks acts named that way ("Wisin & Yandel"), so
+  keep the full credit as a key alongside the split names.
