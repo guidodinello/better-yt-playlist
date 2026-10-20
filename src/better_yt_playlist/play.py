@@ -9,11 +9,21 @@ printed too as a fallback.
 
 from __future__ import annotations
 
+import random
+import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .similar import Recommendation, Seed
+from .lastfm import LastfmApi
+from .similar import (
+    Recommendation,
+    Seed,
+    YoutubeResolver,
+    discover,
+    similar,
+    songs_by_artist,
+)
 
 WATCH_VIDEOS_MAX = 50
 _WATCH_VIDEOS_URL = "https://www.youtube.com/watch_videos?video_ids="
@@ -77,6 +87,59 @@ def build_queue(
     rest_extra = fresh(extra)[:room]
     rest_main = fresh(main)[: room - len(rest_extra)]
     return first + _interleave(rest_main, rest_extra)
+
+
+def seed_queue(
+    conn: sqlite3.Connection,
+    playlist_id: str,
+    seed: Seed,
+    *,
+    api: LastfmApi,
+    limit: int,
+    new: int = 0,
+    resolver: YoutubeResolver | None = None,
+    shuffle: bool = False,
+    rng: random.Random | None = None,
+) -> list[QueueEntry]:
+    """``seed``, then its similar playlist songs, with ``new`` songs from ``discover`` mixed in."""
+    if new and resolver is None:
+        raise ValueError("new songs need a YouTube resolver")
+    limit = min(limit, WATCH_VIDEOS_MAX)
+    head = [seed_entry(seed)]
+    main = from_similar(similar(conn, playlist_id, seed, api=api, limit=limit - 1))
+    extra: list[QueueEntry] = []
+    if new and resolver is not None:
+        found = discover(
+            conn,
+            playlist_id,
+            seed,
+            api=api,
+            resolver=resolver,
+            limit=min(new, limit - 1),  # each is a yt-dlp search; don't fetch extras
+        )
+        extra = tagged(found, Reason.NEW)
+    queue = build_queue(head, main, extra, limit=limit)
+    if shuffle:  # ranked: shuffle after the cut so the best songs still play
+        rest = queue[len(head) :]
+        (rng or random).shuffle(rest)
+        queue[len(head) :] = rest
+    return queue
+
+
+def artist_queue(
+    conn: sqlite3.Connection,
+    playlist_id: str,
+    artist: str,
+    *,
+    limit: int,
+    shuffle: bool = False,
+    rng: random.Random | None = None,
+) -> list[QueueEntry]:
+    """The playlist's matched songs by ``artist``; empty if it has none."""
+    main = tagged(songs_by_artist(conn, playlist_id, artist), Reason.BY_ARTIST)
+    if shuffle:  # unranked: shuffle before the cut so any of their songs can play
+        (rng or random).shuffle(main)
+    return build_queue([], main, limit=limit)
 
 
 def _interleave(main: list[QueueEntry], extra: list[QueueEntry]) -> list[QueueEntry]:

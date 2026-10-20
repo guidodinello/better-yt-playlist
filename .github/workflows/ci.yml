@@ -48,7 +48,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --all-extras
 
       - name: ruff format check
         run: uv run ruff format --check .
@@ -68,7 +68,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --all-extras
 
       - name: pyright
         run: uv run pyright
@@ -85,7 +85,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --all-extras
 
       - name: pip-audit
         run: uv run pip-audit --local --skip-editable
@@ -102,7 +102,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --all-extras
 
       - name: Run tests with coverage
         run: uv run pytest --cov=better_yt_playlist --cov-report=term-missing --cov-report=xml

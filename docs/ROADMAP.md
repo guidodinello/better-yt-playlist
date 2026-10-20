@@ -79,6 +79,31 @@ per song). The endpoint is undocumented and caps at 50 ids (verified: 51+
 returns the same list as 50), so the queue is capped there and per-song links
 are printed as a fallback.
 
+## Stage D — a page for the phone ✅
+
+`byp serve` (see the README): search the playlist, tap a song or an artist, tap
+Play. It hands the phone the same `watch_videos` link as `byp play`, which was
+checked first on an Android phone: the YouTube app plays the whole queue.
+
+**Where it runs.** On the Raspberry Pi since 2026-10-20, next to the daily
+`byp-sync.timer` (sync + match), reached over Tailscale. It moves to the HP
+homelab box once that has a fixed place (more RAM; the Pi's 4GB is already the
+bottleneck there). The move: clone, `uv sync --extra serve` (a plain
+`uv sync` drops FastAPI and the service won't start), copy `playlist.db`,
+`token.json`, `client_secret.json` and `byp.env`, then link and enable
+`byp-sync.timer` and `byp-serve.service`. Running headless
+needed the OAuth app published out of *Testing*, whose refresh tokens expire
+after 7 days.
+
+**Why FastAPI.** The routes only parse the request and call the same
+`play.seed_queue` / `play.artist_queue` as the CLI. Plain `def` routes run in a
+thread pool, so each request opens its own SQLite connection and Last.fm client
+(a connection can't cross threads; the client's rate limiter isn't
+thread-safe). It's an optional extra so the CLI stays at three dependencies.
+
+**Not yet.** Fixing a bad Last.fm match from the page (`match --set`): it writes
+to the database, and the page has no authentication.
+
 ## Smaller follow-ups
 
 - **Find featured artists.** The playlist's artist index (`_playlist_index` in
