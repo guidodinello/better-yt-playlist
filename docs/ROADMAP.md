@@ -88,8 +88,10 @@ checked first on an Android phone: the YouTube app plays the whole queue.
 **Where it runs.** On the Raspberry Pi since 2026-10-20, next to the daily
 `byp-sync.timer` (sync + match), reached over Tailscale. It moves to the HP
 homelab box once that has a fixed place (more RAM; the Pi's 4GB is already the
-bottleneck there). The move is copying `playlist.db`, `token.json`,
-`client_secret.json` and `byp.env` and relinking the units. Running headless
+bottleneck there). The move: clone, `uv sync --extra serve` (a plain
+`uv sync` drops FastAPI and the service won't start), copy `playlist.db`,
+`token.json`, `client_secret.json` and `byp.env`, then link and enable
+`byp-sync.timer` and `byp-serve.service`. Running headless
 needed the OAuth app published out of *Testing*, whose refresh tokens expire
 after 7 days.
 

@@ -93,7 +93,7 @@ options on the page. Server-rendered HTML, no login, no quota. It needs the
 `serve` extra:
 
 ```bash
-uv sync --extra serve
+uv sync --extra serve                    # a plain `uv sync` removes it again
 byp serve                                # http://127.0.0.1:8765
 byp serve --host 0.0.0.0                 # reachable from other devices
 ```
