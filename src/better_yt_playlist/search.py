@@ -60,9 +60,16 @@ def search[T](items: Sequence[T], query: str, text: Callable[[T], str]) -> list[
 
     An empty query returns all items unchanged.
     """
+    if not normalize(query):
+        return list(items)
+    return [item for item, _ in rank(items, query, text)]
+
+
+def rank[T](items: Sequence[T], query: str, text: Callable[[T], str]) -> list[tuple[T, int]]:
+    """Like :func:`search`, with each match's score (higher is better); empty query, no matches."""
     query_words = normalize(query).split()
     if not query_words:
-        return list(items)
+        return []
     docs = [_Doc(item, frozenset(words(text(item))), normalize(text(item))) for item in items]
     vocabulary = sorted({w for d in docs for w in d.words})
     scores_per_word = [_word_scores(q, vocabulary) for q in query_words]
@@ -81,7 +88,7 @@ def search[T](items: Sequence[T], query: str, text: Callable[[T], str]) -> list[
                 total += _PHRASE_BONUS
             ranked.append((-total, index, doc.item))
     ranked.sort(key=lambda r: (r[0], r[1]))
-    return [item for _, _, item in ranked]
+    return [(item, -neg_score) for neg_score, _, item in ranked]
 
 
 def _word_scores(query_word: str, vocabulary: Sequence[str]) -> dict[str, int]:

@@ -83,6 +83,28 @@ def test_resolve_seed_two_uploads_of_one_song_are_not_ambiguous(
     assert resolve_seed(conn, PLAYLIST, "rolling", api=FakeLastfm()).video_id == "vRoll"
 
 
+@pytest.mark.parametrize("query", ["yesterday tame", "lost in yesterdy", "TAME impala lost"])
+def test_resolve_seed_is_forgiving(conn: sqlite3.Connection, query: str) -> None:
+    assert resolve_seed(conn, PLAYLIST, query, api=FakeLastfm()).video_id == "vLost"
+
+
+def test_resolve_seed_takes_a_clear_winner_over_weaker_matches(
+    conn: sqlite3.Connection,
+) -> None:
+    seed_playlist(conn, [("vRollin", "Limp Bizkit - Rollin", None)], playlist_id=PLAYLIST)
+    set_manual(conn, "vRollin", "Limp Bizkit", "Rollin")
+    # "rollin" is a whole word of vRollin but only a prefix in "Rolling in the Deep".
+    assert resolve_seed(conn, PLAYLIST, "rollin", api=FakeLastfm()).video_id == "vRollin"
+
+
+def test_resolve_seed_ambiguous_only_when_different_songs_tie_at_the_top(
+    conn: sqlite3.Connection,
+) -> None:
+    with pytest.raises(AmbiguousSeed) as exc:
+        resolve_seed(conn, PLAYLIST, "tame impala", api=FakeLastfm())
+    assert [vid for vid, _ in exc.value.candidates] == ["vLoser", "vLost"]
+
+
 def test_resolve_seed_none_or_unknown_to_lastfm(conn: sqlite3.Connection) -> None:
     with pytest.raises(SeedError, match="no song"):
         resolve_seed(conn, PLAYLIST, "nirvana", api=FakeLastfm())

@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `byp serve` search matches words in any order, ignores case, accents and
   punctuation, takes prefixes and typos, and ranks the best match first
   (stdlib `difflib`, no new dependency)
+- The seed text of `similar`, `discover` and `play` uses the same forgiving
+  search; the best match wins, and only a tie between different songs is ambiguous
 
 ### Fixed
 - `sync` no longer overwrites a video's stored title, channel and metadata with

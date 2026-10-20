@@ -30,6 +30,7 @@ from typing import Protocol, runtime_checkable
 
 from .lastfm import LastfmApi, SimilarArtist, SimilarTrack, TrackInfo
 from .match import MatchStatus, identify, store_result
+from .search import rank
 from .titles import artist_candidates, norm
 
 CACHE_TTL = timedelta(days=30)
@@ -138,24 +139,25 @@ def resolve_seed(conn: sqlite3.Connection, playlist_id: str, query: str, *, api:
         """,
         (playlist_id,),
     ).fetchall()
-    # Filtered in Python: SQLite's lower() only folds ASCII ("ROSALÍA").
-    needle = query.casefold()
     exact = [r for r in rows if r["video_id"] == query]
-    rows = exact or [
-        r
-        for r in rows
-        if needle in (r["title"] or "").casefold()
-        or needle in f"{r['artist'] or ''} {r['track'] or ''}".casefold()
-    ]
-    if not rows:
-        raise SeedError(f"no song in the playlist matches {query!r}")
-    # Several uploads of one song ("Loser" official video + soundtrack upload)
-    # aren't ambiguous: take the first.
-    keys = {
-        norm(r["artist"], r["track"]) if r["status"] in _IDENTIFIED else r["video_id"] for r in rows
-    }
-    if len(keys) > 1:
-        raise AmbiguousSeed(query, [(r["video_id"], r["title"] or "") for r in rows])
+    if exact:
+        rows = exact
+    else:
+        # Forgiving like the page's search: any word order, accents, typos. Best first.
+        ranked = rank(rows, query, _seed_text)
+        if not ranked:
+            raise SeedError(f"no song in the playlist matches {query!r}")
+        top_score = ranked[0][1]
+        top = [r for r, score in ranked if score == top_score]
+        # Several uploads of one song ("Loser" official video + soundtrack upload)
+        # aren't ambiguous: take the first. Different songs tied at the top are.
+        keys = {
+            norm(r["artist"], r["track"]) if r["status"] in _IDENTIFIED else r["video_id"]
+            for r in top
+        }
+        if len(keys) > 1:
+            raise AmbiguousSeed(query, [(r["video_id"], r["title"] or "") for r, _ in ranked])
+        rows = top
 
     row = rows[0]
     if row["status"] in _IDENTIFIED:
@@ -170,6 +172,11 @@ def resolve_seed(conn: sqlite3.Connection, playlist_id: str, query: str, *, api:
             f'byp match --set {row["video_id"]} "Artist" "Track"'
         )
     return Seed(row["video_id"], row["title"] or "", result.info.artist, result.info.track)
+
+
+def _seed_text(row: sqlite3.Row) -> str:
+    fields: tuple[str | None, ...] = (row["artist"], row["track"], row["title"])
+    return " ".join(f for f in fields if f)
 
 
 def similar_for(
