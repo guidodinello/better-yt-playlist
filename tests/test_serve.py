@@ -81,6 +81,13 @@ def test_search_folds_case_beyond_ascii() -> None:
 
 
 @pytest.mark.usefixtures("conn")
+def test_search_is_forgiving_and_ranks_the_best_match_first() -> None:
+    page = _client().get("/", params={"q": "yesterday tame impla"})  # any order, a typo
+    assert "v=vLost" in page.text
+    assert "v=vLoser" not in page.text  # "yesterday" must match too
+
+
+@pytest.mark.usefixtures("conn")
 def test_search_escapes_titles_and_flags_unmatched_songs() -> None:
     page = _client().get("/", params={"q": "raw"})
     assert "<b>" not in page.text

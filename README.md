@@ -88,8 +88,10 @@ instant.
 #### A page for the phone: `byp serve`
 
 The same queues as a small web page: search the playlist, tap a song (or its
-artist), tap **Play**. Shuffle, length and (with yt-dlp installed) new songs are
-options on the page. Server-rendered HTML, no login, no quota. It needs the
+artist), tap **Play**. Search is forgiving: words in any order, case,
+accents and punctuation ignored, prefixes (`sick` → SICKO MODE) and typos
+(`goosbumps`) found, best match first. Shuffle, length and (with yt-dlp
+installed) new songs are options on the page. Server-rendered HTML, no login, no quota. It needs the
 `serve` extra:
 
 ```bash
