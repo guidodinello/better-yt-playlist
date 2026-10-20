@@ -1,0 +1,17 @@
+[Unit]
+Description=byp web page for play (a phone, over Tailscale)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/better-yt-playlist
+# BYP_LASTFM_API_KEY and BYP_SONGS_PLAYLIST, as for byp-sync.service.
+EnvironmentFile=%h/projects/better-yt-playlist/byp.env
+# All interfaces rather than the tailnet IP: tailscaled may not be up yet at boot.
+ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp serve --host 0.0.0.0 --port 8765
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -14,6 +14,12 @@ readme = "README.md"
 better-yt-playlist = "better_yt_playlist.cli:main"
 byp = "better_yt_playlist.cli:main"
 
+[project.optional-dependencies]
+serve = [
+    "fastapi>=0.150",
+    "uvicorn>=0.54",
+]
+
 [tool.uv]
 package = true
 
@@ -27,6 +33,7 @@ dev = [
     "ruff>=0.13",
     "pyright>=1.1",
     "pip-audit>=2.7",
+    "httpx2>=2.15",
 ]
 
 [tool.ruff]

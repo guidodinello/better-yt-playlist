@@ -85,6 +85,30 @@ recommendation on YouTube with a yt-dlp search (no quota). Similarity results
 are cached for 30 days and YouTube lookups indefinitely, so repeat runs are
 instant.
 
+#### A page for the phone: `byp serve`
+
+The same queues as a small web page: search the playlist, tap a song (or its
+artist), tap **Play**. Shuffle, length and (with yt-dlp installed) new songs are
+options on the page. Server-rendered HTML, no login, no quota. It needs the
+`serve` extra:
+
+```bash
+uv sync --extra serve
+byp serve                                # http://127.0.0.1:8765
+byp serve --host 0.0.0.0                 # reachable from other devices
+```
+
+There's no authentication: it's read-only apart from matching a seed song to
+Last.fm, but anyone who can reach the port can use it. Keep it on a private
+network. Ours runs on a Raspberry Pi and the phone reaches it over
+[Tailscale](https://tailscale.com) (`systemd/byp-serve.service`, port 8765; it
+reads the same `byp.env` as the daily timer below):
+
+```bash
+ln -s "$PWD"/systemd/byp-serve.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now byp-serve.service
+```
+
 #### Keeping it current (daily timer)
 
 `systemd/byp-sync.{service,timer}` run `byp sync` then `byp match` daily at

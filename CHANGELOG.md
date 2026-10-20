@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   playlist, reading a plain `byp.env` (systemd can't parse `.lastfm.env`'s
   `export` lines)
 - `PRIVACY.md`, linked from the OAuth consent screen
+- `byp serve`: the `play` queues as a phone-sized web page (search, tap a song or
+  artist, one Play button). FastAPI + uvicorn in a new optional `serve` extra;
+  `systemd/byp-serve.service` runs it on an always-on host
 
 ### Fixed
 - `sync` no longer overwrites a video's stored title, channel and metadata with

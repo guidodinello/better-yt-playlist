@@ -11,6 +11,7 @@
     byp discover "<song>"        similar songs not in the playlist, with YouTube links
     byp play "<song>"            a watch link: the song, then similar ones (no quota)
     byp play --artist "<name>"   a watch link of the playlist's songs by an artist
+    byp serve [--host H]         the same as a web page, for a phone (serve extra)
 
 Paths are overridable with BYP_DB, BYP_CLIENT_SECRET, BYP_TOKEN. The song
 commands use BYP_SONGS_PLAYLIST (default playlist) and BYP_LASTFM_API_KEY.
@@ -150,6 +151,15 @@ def main() -> int:
     p_play.add_argument("--shuffle", action="store_true", help="Shuffle all but the seed")
     p_play.add_argument("--open", action="store_true", help="Open the link in the browser")
 
+    p_serve = sub.add_parser(
+        "serve", help="A web page for play, made for a phone (needs the serve extra)"
+    )
+    p_serve.add_argument("--playlist", default=songs_default, help="(default: $BYP_SONGS_PLAYLIST)")
+    p_serve.add_argument(
+        "--host", default="127.0.0.1", help="Address to listen on (default: 127.0.0.1)"
+    )
+    p_serve.add_argument("--port", type=int, default=8765, help="(default: 8765)")
+
     args = parser.parse_args()
 
     if args.command == "play":
@@ -167,6 +177,12 @@ def main() -> int:
             _run_play(args)
         except LastfmError as exc:
             raise SystemExit(f"Last.fm: {exc}") from exc
+        return 0
+
+    if args.command == "serve":
+        if not args.playlist:
+            raise SystemExit("no playlist — pass --playlist or set BYP_SONGS_PLAYLIST")
+        _run_serve(args)
         return 0
 
     if args.command in ("match", "similar", "discover"):
@@ -256,6 +272,30 @@ def main() -> int:
     return 0
 
 
+def _run_serve(args: argparse.Namespace) -> None:
+    import shutil
+
+    from .db import connect, db_path
+    from .lastfm import LastfmClient
+    from .similar import YtDlpResolver
+
+    try:
+        from .serve import create_app, run
+    except ImportError as exc:
+        raise SystemExit("byp serve needs the serve extra: uv sync --extra serve") from exc
+    # connect() would silently create an empty database and serve no songs.
+    if not db_path().is_file():
+        raise SystemExit(f"no database at {db_path().resolve()} — run byp sync first")
+    LastfmClient.from_env()  # fail now, not on the first tap, when the key is missing
+    resolver = YtDlpResolver() if shutil.which("yt-dlp") else None
+    if resolver is None:
+        logger.info("yt-dlp not found: the page won't offer new songs")
+    app = create_app(
+        args.playlist, connect=connect, lastfm=LastfmClient.from_env, resolver=resolver
+    )
+    run(app, host=args.host, port=args.port)
+
+
 def _run_song_command(args: argparse.Namespace) -> None:
     from .db import connect
 
@@ -332,61 +372,39 @@ def _resolve_seed_or_exit(
 
 
 def _run_play(args: argparse.Namespace) -> None:
-    import random
     import sys
     import webbrowser
 
     from .db import connect
-    from .play import (
-        WATCH_VIDEOS_MAX,
-        QueueEntry,
-        Reason,
-        build_queue,
-        from_similar,
-        seed_entry,
-        tagged,
-        watch_url,
-    )
+    from .play import WATCH_VIDEOS_MAX, artist_queue, seed_queue, watch_url
     from .query import format_table
-    from .similar import songs_by_artist
 
     conn = connect()
     if args.limit > WATCH_VIDEOS_MAX:
         logger.info("YouTube plays at most %d videos per link; capping --limit", WATCH_VIDEOS_MAX)
-    limit = min(args.limit, WATCH_VIDEOS_MAX)
 
-    head: list[QueueEntry] = []
-    extra: list[QueueEntry] = []
     if args.artist:
-        main = tagged(songs_by_artist(conn, args.playlist, args.artist), Reason.BY_ARTIST)
-        if not main:
+        queue = artist_queue(
+            conn, args.playlist, args.artist, limit=args.limit, shuffle=args.shuffle
+        )
+        if not queue:
             raise SystemExit(f"no matched songs by {args.artist!r} in the playlist — run byp match")
-        if args.shuffle:  # unranked: shuffle before the cut so any of their songs can play
-            random.shuffle(main)
     else:
         from .lastfm import LastfmClient
-        from .similar import YtDlpResolver, discover, similar
+        from .similar import YtDlpResolver
 
         api = LastfmClient.from_env()
         seed = _resolve_seed_or_exit(conn, args.playlist, args.seed, api)
-        head = [seed_entry(seed)]
-        main = from_similar(similar(conn, args.playlist, seed, api=api, limit=limit - 1))
-        if args.new:
-            new = discover(
-                conn,
-                args.playlist,
-                seed,
-                api=api,
-                resolver=YtDlpResolver(),
-                limit=min(args.new, limit - 1),  # each is a yt-dlp search; don't fetch extras
-            )
-            extra = tagged(new, Reason.NEW)
-
-    queue = build_queue(head, main, extra, limit=limit)
-    if args.shuffle and head:  # ranked: shuffle after the cut so the best songs still play
-        rest = queue[len(head) :]
-        random.shuffle(rest)
-        queue[len(head) :] = rest
+        queue = seed_queue(
+            conn,
+            args.playlist,
+            seed,
+            api=api,
+            limit=args.limit,
+            new=args.new,
+            resolver=YtDlpResolver() if args.new else None,
+            shuffle=args.shuffle,
+        )
     rows = [
         (str(i), e.reason, e.artist, e.track, f"https://youtu.be/{e.video_id}")
         for i, e in enumerate(queue, 1)
