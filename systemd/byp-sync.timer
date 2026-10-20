@@ -1,0 +1,11 @@
+[Unit]
+Description=Run byp sync + match daily
+
+[Timer]
+# Clear of the herdr-routines jobs (04:30–06:30 Montevideo) on the Pi.
+OnCalendar=*-*-* 03:00:00 America/Montevideo
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
