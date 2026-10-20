@@ -139,7 +139,7 @@ def create_app(
             except SystemExit as exc:  # library code exits on a missing tool; don't kill the server
                 raise RuntimeError(str(exc)) from exc
         options = Options(limit, shuffle, new if resolver else None)
-        return render_queue(f"{seed.track} — {seed.artist}", {"v": v}, queue, options)
+        return render_queue(seed.title or f"{seed.track} — {seed.artist}", {"v": v}, queue, options)
 
     async def bad_request(request: Request, exc: BadRequest) -> HTMLResponse:
         return HTMLResponse(render_error(str(exc)), status_code=400)
@@ -210,8 +210,6 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 li { padding: .6rem 0; border-bottom: 1px solid var(--line); }
 li .song { display: block; text-decoration: none; font-weight: 500; }
 li .meta { color: var(--muted); font-size: .9rem; }
-li .upload { display: block; color: var(--muted); font-size: .8rem; opacity: .8;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip { display: inline-block; font-size: .75rem; padding: .05rem .45rem; border-radius: 1rem;
   background: var(--chip); color: var(--muted); margin-left: .35rem; }
 .play { display: block; text-align: center; text-decoration: none; font-weight: 600;
@@ -240,21 +238,17 @@ def _href(path: str, params: dict[str, str]) -> str:
 def render_search(query: str, songs: Sequence[Song]) -> str:
     items: list[str] = []
     for s in songs:
-        song_link = f'<a class=song href="{_href("/play", {"v": s.video_id})}">'
+        # The upload's own title: it says which version this is (a remix, an edit,
+        # slowed + reverb), which the Last.fm name hides.
+        song_link = (
+            f'<a class=song href="{_href("/play", {"v": s.video_id})}">{escape(s.title)}</a>'
+        )
         if s.matched:
             artist_link = _href("/play", {"artist": s.artist or ""})
-            # The upload's own title too: the Last.fm name hides which version it is
-            # (a remix, an edit, slowed + reverb).
-            items.append(
-                f"<li>{song_link}{escape(s.track or '')}</a>"
-                f'<span class=meta><a href="{artist_link}">{escape(s.artist or "")}</a></span>'
-                f"<span class=upload>{escape(s.title)}</span></li>"
-            )
+            meta = f'<a href="{artist_link}">{escape(s.artist or "")}</a>'
         else:
-            items.append(
-                f"<li>{song_link}{escape(s.title)}</a>"
-                "<span class=meta>not matched to Last.fm yet<span class=chip>?</span></span></li>"
-            )
+            meta = "not matched to Last.fm yet<span class=chip>?</span>"
+        items.append(f"<li>{song_link}<span class=meta>{meta}</span></li>")
     count = f"{len(songs)} song{'s' if len(songs) != 1 else ''}"
     body = (
         "<h1>Play from the playlist</h1>"
@@ -278,7 +272,7 @@ def render_queue(
         chip = f"<span class=chip>{escape(label)}</span>" if label else ""
         items.append(
             f'<li><a class=song href="https://youtu.be/{escape(e.video_id)}">'
-            f"{escape(e.track)}</a><span class=meta>{escape(e.artist)}{chip}</span></li>"
+            f"{escape(e.title or e.track)}</a><span class=meta>{escape(e.artist)}{chip}</span></li>"
         )
     url = watch_url([e.video_id for e in queue])
     body = (

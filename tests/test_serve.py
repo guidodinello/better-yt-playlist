@@ -88,10 +88,17 @@ def test_search_is_forgiving_and_ranks_the_best_match_first() -> None:
 
 
 @pytest.mark.usefixtures("conn")
-def test_matched_songs_also_show_the_upload_title() -> None:
+def test_songs_are_listed_by_their_youtube_title_with_the_artist() -> None:
     page = _client().get("/", params={"q": "lost in yesterday"})
-    assert "Lost in Yesterday</a>" in page.text  # the Last.fm name
-    assert "Tame Impala - Lost In Yesterday</span>" in page.text  # and the YouTube title
+    assert "Tame Impala - Lost In Yesterday</a>" in page.text
+    assert "artist=Tame+Impala" in page.text
+
+
+@pytest.mark.usefixtures("conn")
+def test_the_queue_shows_youtube_titles() -> None:
+    page = _client().get("/play", params={"v": "vLoser"})
+    assert "Tame Impala - Loser</a>" in page.text  # the seed
+    assert "Tame Impala - Lost In Yesterday</a>" in page.text  # a similar song
 
 
 @pytest.mark.usefixtures("conn")

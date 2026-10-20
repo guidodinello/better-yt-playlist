@@ -43,19 +43,24 @@ class QueueEntry:
     artist: str
     track: str
     reason: Reason
+    title: str | None = None  # the YouTube upload's title, when known
 
 
 def seed_entry(seed: Seed) -> QueueEntry:
-    return QueueEntry(seed.video_id, seed.artist, seed.track, Reason.SEED)
+    return QueueEntry(seed.video_id, seed.artist, seed.track, Reason.SEED, seed.title)
 
 
 def from_similar(recs: Sequence[Recommendation]) -> list[QueueEntry]:
     """``similar`` results, tagged by how Last.fm found them (track or artist)."""
-    return [QueueEntry(r.video_id, r.artist, r.track, Reason(r.basis)) for r in recs if r.video_id]
+    return [
+        QueueEntry(r.video_id, r.artist, r.track, Reason(r.basis), r.title)
+        for r in recs
+        if r.video_id
+    ]
 
 
 def tagged(recs: Sequence[Recommendation], reason: Reason) -> list[QueueEntry]:
-    return [QueueEntry(r.video_id, r.artist, r.track, reason) for r in recs if r.video_id]
+    return [QueueEntry(r.video_id, r.artist, r.track, reason, r.title) for r in recs if r.video_id]
 
 
 def build_queue(
