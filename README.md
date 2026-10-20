@@ -75,8 +75,10 @@ byp discover "loser tame impala"         # similar songs NOT in it, with YouTube
 byp discover vIdEoId --limit 5 --format json
 ```
 
-The seed is a video id or any text in the song's title/artist/track; if it
-matches several songs you get the list to pick from. Many less-known songs
+The seed is a video id or text from the song's title/artist/track, matched
+forgivingly (any word order, no accents needed, typos and prefixes OK); the
+best match wins, and only a tie between different songs gets you the list to
+pick from. Many less-known songs
 have no track-level similarity on Last.fm; then (and whenever track-level
 results come up short) both commands fill in from **similar artists** —
 marked `via artist` in the output. That fallback is unreliable for artist
