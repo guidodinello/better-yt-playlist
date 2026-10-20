@@ -33,6 +33,7 @@ client_secret*.json
 token.json
 token_*.json
 .lastfm.env
+byp.env
 *.db
 *.sqlite
 *.sqlite3

@@ -1,0 +1,20 @@
+[Unit]
+Description=Mirror the songs playlist and map new songs to Last.fm (daily)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/better-yt-playlist
+# Plain KEY=value lines: BYP_LASTFM_API_KEY, BYP_SONGS_PLAYLIST. systemd does not
+# accept the `export KEY=…` lines of .lastfm.env (the keys come through unset).
+EnvironmentFile=%h/projects/better-yt-playlist/byp.env
+ExecStart=/bin/sh -c 'exec %h/projects/better-yt-playlist/.venv/bin/byp sync "$BYP_SONGS_PLAYLIST"'
+ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp match
+StandardOutput=journal
+StandardError=journal
+# A refresh failure would otherwise wait on an OAuth browser flow that never comes.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

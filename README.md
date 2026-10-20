@@ -85,6 +85,26 @@ recommendation on YouTube with a yt-dlp search (no quota). Similarity results
 are cached for 30 days and YouTube lookups indefinitely, so repeat runs are
 instant.
 
+#### Keeping it current (daily timer)
+
+`systemd/byp-sync.{service,timer}` run `byp sync` then `byp match` daily at
+03:00 Montevideo, so new songs are mirrored and mapped to Last.fm without
+running anything by hand. Matching only looks at songs not tried before. The
+service reads a plain `KEY=value` file, `byp.env` (gitignored): systemd doesn't
+understand the `export` lines in `.lastfm.env`.
+
+```bash
+sed -E 's/^export //' .lastfm.env > byp.env && chmod 600 byp.env
+echo "BYP_SONGS_PLAYLIST=PLxxxxxxxx" >> byp.env
+ln -s "$PWD"/systemd/byp-sync.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now byp-sync.timer
+journalctl --user -u byp-sync.service      # logs
+```
+
+Headless, the stored OAuth token has to keep refreshing on its own. A Google
+Cloud project left in *Testing* status issues tokens that expire after 7 days,
+so publish it (Google Auth Platform → Audience → Publish app).
+
 #### Play: a watch queue from a song or an artist
 
 `byp play` turns those results into one YouTube link that plays them in order

@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   followed by similar playlist songs, optionally mixed with `--new N` songs from
   `discover`, or (`--artist`) the playlist's songs by an artist. `--limit`
   (default 25, max 50), `--shuffle`, `--open`
+- `systemd/byp-sync.{service,timer}`: daily `byp sync` + `byp match` of the songs
+  playlist, reading a plain `byp.env` (systemd can't parse `.lastfm.env`'s
+  `export` lines)
+- `PRIVACY.md`, linked from the OAuth consent screen
 
 ### Fixed
 - `sync` no longer overwrites a video's stored title, channel and metadata with
