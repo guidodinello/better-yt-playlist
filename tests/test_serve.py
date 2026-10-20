@@ -88,6 +88,13 @@ def test_search_is_forgiving_and_ranks_the_best_match_first() -> None:
 
 
 @pytest.mark.usefixtures("conn")
+def test_matched_songs_also_show_the_upload_title() -> None:
+    page = _client().get("/", params={"q": "lost in yesterday"})
+    assert "Lost in Yesterday</a>" in page.text  # the Last.fm name
+    assert "Tame Impala - Lost In Yesterday</span>" in page.text  # and the YouTube title
+
+
+@pytest.mark.usefixtures("conn")
 def test_search_escapes_titles_and_flags_unmatched_songs() -> None:
     page = _client().get("/", params={"q": "raw"})
     assert "<b>" not in page.text

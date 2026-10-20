@@ -210,6 +210,8 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 li { padding: .6rem 0; border-bottom: 1px solid var(--line); }
 li .song { display: block; text-decoration: none; font-weight: 500; }
 li .meta { color: var(--muted); font-size: .9rem; }
+li .upload { display: block; color: var(--muted); font-size: .8rem; opacity: .8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip { display: inline-block; font-size: .75rem; padding: .05rem .45rem; border-radius: 1rem;
   background: var(--chip); color: var(--muted); margin-left: .35rem; }
 .play { display: block; text-align: center; text-decoration: none; font-weight: 600;
@@ -241,9 +243,12 @@ def render_search(query: str, songs: Sequence[Song]) -> str:
         song_link = f'<a class=song href="{_href("/play", {"v": s.video_id})}">'
         if s.matched:
             artist_link = _href("/play", {"artist": s.artist or ""})
+            # The upload's own title too: the Last.fm name hides which version it is
+            # (a remix, an edit, slowed + reverb).
             items.append(
                 f"<li>{song_link}{escape(s.track or '')}</a>"
-                f'<span class=meta><a href="{artist_link}">{escape(s.artist or "")}</a></span></li>'
+                f'<span class=meta><a href="{artist_link}">{escape(s.artist or "")}</a></span>'
+                f"<span class=upload>{escape(s.title)}</span></li>"
             )
         else:
             items.append(
