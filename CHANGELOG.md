@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `byp serve`: the `play` queues as a phone-sized web page (search, tap a song or
   artist, one Play button). FastAPI + uvicorn in a new optional `serve` extra;
   `systemd/byp-serve.service` runs it on an always-on host
+- `byp serve` search matches words in any order, ignores case, accents and
+  punctuation, takes prefixes and typos, and ranks the best match first
+  (stdlib `difflib`, no new dependency)
 
 ### Fixed
 - `sync` no longer overwrites a video's stored title, channel and metadata with

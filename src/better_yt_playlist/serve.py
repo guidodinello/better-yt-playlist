@@ -32,6 +32,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .lastfm import LastfmApi, LastfmError
 from .play import WATCH_VIDEOS_MAX, QueueEntry, Reason, artist_queue, seed_queue, watch_url
+from .search import search
 from .similar import SeedError, YoutubeResolver, resolve_seed
 
 DEFAULT_LIMIT = 25
@@ -60,10 +61,15 @@ class BadRequest(ValueError):
 
 
 def find_songs(conn: sqlite3.Connection, playlist_id: str, query: str) -> list[Song]:
-    """Live, playable songs whose title or matched artist/track contain ``query``, in order."""
+    """Live, playable songs matching ``query`` (see :func:`.search.search`), best first.
+
+    Searches the YouTube title, the Last.fm artist/track and the channel. An empty
+    query lists every song in playlist order.
+    """
     rows = conn.execute(
         """
-        SELECT p.video_id, MIN(p.title) AS title, m.artist, m.track
+        SELECT p.video_id, MIN(p.title) AS title, MIN(p.channel_title) AS channel,
+               m.artist, m.track
         FROM playlist_items p
         LEFT JOIN track_metadata m
                ON m.video_id = p.video_id AND m.status IN (?, ?)
@@ -73,16 +79,13 @@ def find_songs(conn: sqlite3.Connection, playlist_id: str, query: str) -> list[S
         """,
         (*_IDENTIFIED, playlist_id),
     ).fetchall()
-    songs = [Song(r["video_id"], r["title"] or "", r["artist"], r["track"]) for r in rows]
-    # Filtered in Python: SQLite's lower() only folds ASCII ("ROSALÍA").
-    needle = query.strip().casefold()
-    if not needle:
-        return songs
-    return [
-        s
-        for s in songs
-        if needle in s.title.casefold() or needle in f"{s.artist or ''} {s.track or ''}".casefold()
-    ]
+    found = search(rows, query, _searched_text)
+    return [Song(r["video_id"], r["title"] or "", r["artist"], r["track"]) for r in found]
+
+
+def _searched_text(row: sqlite3.Row) -> str:
+    fields: tuple[str | None, ...] = (row["artist"], row["track"], row["title"], row["channel"])
+    return " ".join(f for f in fields if f)
 
 
 # --- app --------------------------------------------------------------------
@@ -136,7 +139,7 @@ def create_app(
             except SystemExit as exc:  # library code exits on a missing tool; don't kill the server
                 raise RuntimeError(str(exc)) from exc
         options = Options(limit, shuffle, new if resolver else None)
-        return render_queue(f"{seed.track} — {seed.artist}", {"v": v}, queue, options)
+        return render_queue(seed.title or f"{seed.track} — {seed.artist}", {"v": v}, queue, options)
 
     async def bad_request(request: Request, exc: BadRequest) -> HTMLResponse:
         return HTMLResponse(render_error(str(exc)), status_code=400)
@@ -235,18 +238,17 @@ def _href(path: str, params: dict[str, str]) -> str:
 def render_search(query: str, songs: Sequence[Song]) -> str:
     items: list[str] = []
     for s in songs:
-        song_link = f'<a class=song href="{_href("/play", {"v": s.video_id})}">'
+        # The upload's own title: it says which version this is (a remix, an edit,
+        # slowed + reverb), which the Last.fm name hides.
+        song_link = (
+            f'<a class=song href="{_href("/play", {"v": s.video_id})}">{escape(s.title)}</a>'
+        )
         if s.matched:
             artist_link = _href("/play", {"artist": s.artist or ""})
-            items.append(
-                f"<li>{song_link}{escape(s.track or '')}</a>"
-                f'<span class=meta><a href="{artist_link}">{escape(s.artist or "")}</a></span></li>'
-            )
+            meta = f'<a href="{artist_link}">{escape(s.artist or "")}</a>'
         else:
-            items.append(
-                f"<li>{song_link}{escape(s.title)}</a>"
-                "<span class=meta>not matched to Last.fm yet<span class=chip>?</span></span></li>"
-            )
+            meta = "not matched to Last.fm yet<span class=chip>?</span>"
+        items.append(f"<li>{song_link}<span class=meta>{meta}</span></li>")
     count = f"{len(songs)} song{'s' if len(songs) != 1 else ''}"
     body = (
         "<h1>Play from the playlist</h1>"
@@ -270,7 +272,7 @@ def render_queue(
         chip = f"<span class=chip>{escape(label)}</span>" if label else ""
         items.append(
             f'<li><a class=song href="https://youtu.be/{escape(e.video_id)}">'
-            f"{escape(e.track)}</a><span class=meta>{escape(e.artist)}{chip}</span></li>"
+            f"{escape(e.title or e.track)}</a><span class=meta>{escape(e.artist)}{chip}</span></li>"
         )
     url = watch_url([e.video_id for e in queue])
     body = (

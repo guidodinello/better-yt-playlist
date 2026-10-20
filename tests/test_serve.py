@@ -81,6 +81,27 @@ def test_search_folds_case_beyond_ascii() -> None:
 
 
 @pytest.mark.usefixtures("conn")
+def test_search_is_forgiving_and_ranks_the_best_match_first() -> None:
+    page = _client().get("/", params={"q": "yesterday tame impla"})  # any order, a typo
+    assert "v=vLost" in page.text
+    assert "v=vLoser" not in page.text  # "yesterday" must match too
+
+
+@pytest.mark.usefixtures("conn")
+def test_songs_are_listed_by_their_youtube_title_with_the_artist() -> None:
+    page = _client().get("/", params={"q": "lost in yesterday"})
+    assert "Tame Impala - Lost In Yesterday</a>" in page.text
+    assert "artist=Tame+Impala" in page.text
+
+
+@pytest.mark.usefixtures("conn")
+def test_the_queue_shows_youtube_titles() -> None:
+    page = _client().get("/play", params={"v": "vLoser"})
+    assert "Tame Impala - Loser</a>" in page.text  # the seed
+    assert "Tame Impala - Lost In Yesterday</a>" in page.text  # a similar song
+
+
+@pytest.mark.usefixtures("conn")
 def test_search_escapes_titles_and_flags_unmatched_songs() -> None:
     page = _client().get("/", params={"q": "raw"})
     assert "<b>" not in page.text
