@@ -2,6 +2,8 @@
 Description=Mirror the songs playlist and map new songs to Last.fm (daily)
 After=network-online.target
 Wants=network-online.target
+# Then pre-fetch new songs for the page (its own unit: it runs longer than this one's timeout).
+OnSuccess=byp-warm.service
 
 [Service]
 Type=oneshot

@@ -9,6 +9,7 @@
     byp match                    map songs to Last.fm (artist, track)
     byp similar "<song>"         songs in the playlist similar to one of them
     byp discover "<song>"        similar songs not in the playlist, with YouTube links
+    byp warm                     look up every song's new songs ahead of time (daily timer)
     byp play "<song>"            a watch link: the song, then similar ones (no quota)
     byp play --artist "<name>"   a watch link of the playlist's songs by an artist
     byp serve [--host H]         the same as a web page, for a phone (serve extra)
@@ -162,6 +163,17 @@ def main() -> int:
     p_play.add_argument("--shuffle", action="store_true", help="Shuffle all but the seed")
     p_play.add_argument("--open", action="store_true", help="Open the link in the browser")
 
+    p_warm = sub.add_parser(
+        "warm", help="Look up every song's new songs ahead of time, so the page is fast"
+    )
+    p_warm.add_argument("--playlist", default=songs_default, help="(default: $BYP_SONGS_PLAYLIST)")
+    p_warm.add_argument(
+        "--max-minutes",
+        type=float,
+        default=60,
+        help="Stop after this long; the next run continues (default: 60)",
+    )
+
     p_serve = sub.add_parser(
         "serve", help="A web page for play, made for a phone (needs the serve extra)"
     )
@@ -196,6 +208,19 @@ def main() -> int:
         if not args.playlist:
             raise SystemExit("no playlist — pass --playlist or set BYP_SONGS_PLAYLIST")
         _run_serve(args)
+        return 0
+
+    if args.command == "warm":
+        if not args.playlist:
+            raise SystemExit("no playlist — pass --playlist or set BYP_SONGS_PLAYLIST")
+        if args.max_minutes <= 0:
+            raise SystemExit("--max-minutes must be positive")
+        from .lastfm import LastfmError
+
+        try:
+            _run_warm(args)
+        except LastfmError as exc:
+            raise SystemExit(f"Last.fm: {exc}") from exc
         return 0
 
     if args.command in ("match", "similar", "discover"):
@@ -307,6 +332,35 @@ def _run_serve(args: argparse.Namespace) -> None:
         args.playlist, connect=connect, lastfm=LastfmClient.from_env, resolver=resolver
     )
     run(app, host=args.host, port=args.port)
+
+
+def _run_warm(args: argparse.Namespace) -> None:
+    import shutil
+
+    from .db import connect
+    from .lastfm import LastfmClient
+    from .similar import YtDlpResolver
+    from .warm import warm
+
+    if shutil.which("yt-dlp") is None:
+        raise SystemExit("yt-dlp not found. Install it: uv tool install yt-dlp")
+    stats = warm(
+        connect(),
+        args.playlist,
+        api=LastfmClient.from_env(),
+        resolver=YtDlpResolver(),
+        max_minutes=args.max_minutes,
+    )
+    logger.info(
+        "warmed %d of %d (%d songs, then only new artists): %d searches, %d failed",
+        stats.warmed,
+        2 * stats.songs,
+        stats.songs,
+        stats.searches,
+        stats.failed,
+    )
+    if stats.stopped:
+        logger.info("stopped early: %s — the next run continues", stats.stopped)
 
 
 def _run_song_command(args: argparse.Namespace) -> None:

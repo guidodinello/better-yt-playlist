@@ -19,6 +19,8 @@ unreliable — Last.fm merges them into one profile.
 ``discover`` runs its yt-dlp searches in parallel, in batches no bigger than
 the number of songs still missing, so it never searches more than a one-by-one
 run would. Only the searches leave the main thread; the connection doesn't.
+A search that *fails* (yt-dlp error or timeout, e.g. YouTube throttling) is
+skipped and never cached, unlike one that finds nothing, so it's retried later.
 
 ``discover(new_artists=True)`` also drops songs by any artist the playlist
 already has, the seed's own included: new songs *and* new names.
@@ -100,6 +102,10 @@ class YoutubeResolver(Protocol):
     def resolve(self, artist: str, track: str) -> YoutubeHit | None: ...
 
 
+class YoutubeLookupFailed(RuntimeError):
+    """The search itself failed, as opposed to finding nothing; never cached."""
+
+
 class YtDlpResolver:
     """Satisfies :class:`YoutubeResolver` with a ``ytsearch1:`` yt-dlp call."""
 
@@ -119,7 +125,11 @@ class YtDlpResolver:
         except FileNotFoundError:
             raise SystemExit("yt-dlp not found. Install it: pip install yt-dlp") from None
         except subprocess.TimeoutExpired:
-            return None
+            raise YoutubeLookupFailed(f"yt-dlp timed out on {artist} - {track}") from None
+        # A search with no results still exits 0, with nothing printed.
+        if result.returncode != 0:
+            detail = result.stderr.strip().splitlines()[-1:] or ["no output"]
+            raise YoutubeLookupFailed(f"yt-dlp exited {result.returncode}: {detail[0]}")
         line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
         parts = line.split("\t")
         if len(parts) != 3 or not parts[0]:
@@ -443,21 +453,37 @@ def _prefetch_youtube(
     resolver: YoutubeResolver,
     tracks: Iterable[TrackInfo | SimilarTrack],
     now: datetime,
-) -> None:
-    """Search the uncached ``tracks`` in parallel and store them, so ``_lookup_youtube`` hits."""
+) -> set[tuple[str, str]]:
+    """Search the uncached ``tracks`` in parallel and store them, so ``_lookup_youtube`` hits.
+
+    Returns the keys whose search failed (not stored). Any other error a search
+    raises is re-raised once the searches that did finish are stored.
+    """
     todo: dict[tuple[str, str], tuple[str, str]] = {}  # norm key -> (artist, track) as named
     for t in tracks:
         key = norm(t.artist, t.track)
         if key not in todo and _cached_youtube(conn, key) is None:
             todo[key] = (t.artist, t.track)
     if not todo:
-        return
-    artists, names = zip(*todo.values(), strict=True)
+        return set()
     with ThreadPoolExecutor(max_workers=min(len(todo), _PARALLEL_LOOKUPS)) as pool:
-        hits = list(pool.map(resolver.resolve, artists, names))
-    for key, hit in zip(todo, hits, strict=True):
+        futures = {key: pool.submit(resolver.resolve, *named) for key, named in todo.items()}
+    failed: set[tuple[str, str]] = set()
+    stop: Exception | None = None
+    for key, future in futures.items():
+        try:
+            hit = future.result()
+        except YoutubeLookupFailed:
+            failed.add(key)
+            continue
+        except Exception as exc:  # e.g. the caller's search budget ran out
+            stop = stop or exc
+            continue
         _store_youtube(conn, key, hit, now)
     conn.commit()
+    if stop is not None:
+        raise stop
+    return failed
 
 
 def discover(
@@ -478,11 +504,12 @@ def discover(
     now = now or datetime.now(UTC)
     index = _playlist_index(conn, playlist_id)
     seen = {norm(seed.artist, seed.track)}
+    failed: set[tuple[str, str]] = set()  # searches that errored: skip, don't retry now
     out: list[Recommendation] = []
 
     def eligible(t: TrackInfo | SimilarTrack) -> bool:
         key = norm(t.artist, t.track)
-        if key in seen or key in index.by_key:
+        if key in seen or key in index.by_key or key in failed:
             return False
         return not (new_artists and _has_artist(index, t.artist))
 
@@ -490,8 +517,13 @@ def discover(
         """Add ``t`` if it's new and on YouTube; report whether it was added."""
         if not eligible(t):
             return False
-        seen.add(norm(t.artist, t.track))
-        hit = _lookup_youtube(conn, resolver, t.artist, t.track, now)
+        key = norm(t.artist, t.track)
+        seen.add(key)
+        try:
+            hit = _lookup_youtube(conn, resolver, t.artist, t.track, now)
+        except YoutubeLookupFailed:
+            failed.add(key)
+            return False
         # A name variant `norm` missed can still be the very video you have.
         if hit is None or hit.video_id in index.video_ids:
             return False
@@ -510,7 +542,7 @@ def discover(
                     break
         if not batch:
             break
-        _prefetch_youtube(conn, resolver, batch, now)
+        failed |= _prefetch_youtube(conn, resolver, batch, now)
         for t in batch:
             consider(t, t.match, Basis.TRACK)
             if len(out) >= limit:
@@ -529,7 +561,7 @@ def discover(
         start += len(artists)
         top = {a.name: _top_tracks(conn, a.name, api=api, now=now) for a in artists}
         firsts = (next((t for t in tracks if eligible(t)), None) for tracks in top.values())
-        _prefetch_youtube(conn, resolver, [t for t in firsts if t is not None], now)
+        failed |= _prefetch_youtube(conn, resolver, [t for t in firsts if t is not None], now)
         for a in artists:
             for t in top[a.name]:
                 if consider(t, a.match, Basis.ARTIST):

@@ -129,10 +129,21 @@ understand the `export` lines in `.lastfm.env`.
 ```bash
 sed -E 's/^export //' .lastfm.env > byp.env && chmod 600 byp.env
 echo "BYP_SONGS_PLAYLIST=PLxxxxxxxx" >> byp.env
-ln -s "$PWD"/systemd/byp-sync.{service,timer} ~/.config/systemd/user/
+ln -s "$PWD"/systemd/byp-{sync,warm}.service "$PWD"/systemd/byp-sync.timer ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now byp-sync.timer
 journalctl --user -u byp-sync.service      # logs
+journalctl --user -u byp-warm.service      # logs of the warm-up below
 ```
+
+After a successful sync, `byp-warm.service` runs `byp warm`. It builds every
+song's queue the way the page does (and again with "only new artists"), so the
+Last.fm calls and yt-dlp searches a first tap would make are already cached and
+the tap doesn't wait ~20 s. It searches one at a time with a pause in between,
+stops after an hour (`--max-minutes`) or after 10 failed searches in a row
+(YouTube throttling), and the next night continues where it stopped. The first
+round over a whole playlist takes several nights. After that only new songs and
+Last.fm's 30-day refreshes cost anything. A failed search is never cached as
+"not found", so it's retried later.
 
 Headless, the stored OAuth token has to keep refreshing on its own. A Google
 Cloud project left in *Testing* status issues tokens that expire after 7 days,
