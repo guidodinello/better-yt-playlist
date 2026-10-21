@@ -38,6 +38,7 @@ from .similar import SeedError, YoutubeResolver, resolve_seed
 DEFAULT_LIMIT = 25
 LIMIT_CHOICES = (10, 25, WATCH_VIDEOS_MAX)
 MAX_NEW = 10  # each new song is a yt-dlp search on first use; keep a tap from taking minutes
+DEFAULT_NEW = 5  # discovering is the point; 0 on the page turns it off
 _IDENTIFIED = ("matched", "manual")
 
 
@@ -110,7 +111,8 @@ def create_app(
         artist: str = "",
         limit: Annotated[int, Query(ge=1, le=WATCH_VIDEOS_MAX)] = DEFAULT_LIMIT,
         shuffle: bool = False,
-        new: Annotated[int, Query(ge=0, le=MAX_NEW)] = 0,
+        new: Annotated[int, Query(ge=0, le=MAX_NEW)] = DEFAULT_NEW,
+        new_artists: bool = False,
     ) -> str:
         v, artist = v.strip(), artist.strip()
         if bool(v) == bool(artist):
@@ -121,7 +123,7 @@ def create_app(
                 if not queue:
                     raise BadRequest(f"No matched songs by {artist!r} in the playlist.")
                 return render_queue(
-                    artist, {"artist": artist}, queue, Options(limit, shuffle, None)
+                    artist, {"artist": artist}, queue, Options(limit, shuffle, None, False)
                 )
             api = lastfm()
             seed = resolve_seed(conn, playlist_id, v, api=api)
@@ -133,12 +135,13 @@ def create_app(
                     api=api,
                     limit=limit,
                     new=new if resolver else 0,
+                    new_artists=new_artists,
                     resolver=resolver,
                     shuffle=shuffle,
                 )
             except SystemExit as exc:  # library code exits on a missing tool; don't kill the server
                 raise RuntimeError(str(exc)) from exc
-        options = Options(limit, shuffle, new if resolver else None)
+        options = Options(limit, shuffle, new if resolver else None, new_artists)
         return render_queue(seed.title or f"{seed.track} — {seed.artist}", {"v": v}, queue, options)
 
     async def bad_request(request: Request, exc: BadRequest) -> HTMLResponse:
@@ -181,6 +184,7 @@ class Options:
     limit: int
     shuffle: bool
     new: int | None  # None: new songs aren't offered (artist queue, or no yt-dlp)
+    new_artists: bool
 
 
 _REASON_LABEL = {
@@ -304,6 +308,8 @@ def _options_form(target: dict[str, str], options: Options) -> str:
         new = (
             f'<label>+ <input type=number name=new min=0 max={MAX_NEW} value="{options.new}"'
             ' style="width:3.5rem;font:inherit"> new</label>'
+            f"<label><input type=checkbox name=new_artists value=1"
+            f"{' checked' if options.new_artists else ''}> only new artists</label>"
         )
     return (
         "<form class=options action=/play method=get>"

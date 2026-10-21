@@ -15,6 +15,9 @@ with playlist songs by those artists, ``discover`` with each artist's top
 track (``artist.getTopTracks``). Those rows carry ``basis = "artist"``. An
 artist name shared by several acts (e.g. "A.M.") makes this fallback
 unreliable — Last.fm merges them into one profile.
+
+``discover(new_artists=True)`` also drops songs by any artist the playlist
+already has, the seed's own included: new songs *and* new names.
 """
 
 from __future__ import annotations
@@ -333,6 +336,11 @@ def songs_by_artist(
     return [Recommendation(a, t, 1.0, None, video_id, title) for video_id, title, a, t in songs]
 
 
+def _has_artist(index: _PlaylistIndex, artist: str) -> bool:
+    """Whether any name ``artist`` credits has songs in the playlist."""
+    return any(_artist_key(a) in index.by_artist for a in artist_candidates(artist))
+
+
 def similar(
     conn: sqlite3.Connection,
     playlist_id: str,
@@ -421,9 +429,13 @@ def discover(
     api: LastfmApi,
     resolver: YoutubeResolver,
     limit: int,
+    new_artists: bool = False,
     now: datetime | None = None,
 ) -> list[Recommendation]:
-    """Songs similar to ``seed`` that are *not* in the playlist, each with a YouTube video."""
+    """Songs similar to ``seed`` that are *not* in the playlist, each with a YouTube video.
+
+    ``new_artists``: also skip songs by artists the playlist already has.
+    """
     now = now or datetime.now(UTC)
     index = _playlist_index(conn, playlist_id)
     seen = {norm(seed.artist, seed.track)}
@@ -435,6 +447,8 @@ def discover(
         if key in seen or key in index.by_key:
             return False
         seen.add(key)
+        if new_artists and _has_artist(index, t.artist):
+            return False
         hit = _lookup_youtube(conn, resolver, t.artist, t.track, now)
         # A name variant `norm` missed can still be the very video you have.
         if hit is None or hit.video_id in index.video_ids:
@@ -449,6 +463,8 @@ def discover(
 
     # One top track per related artist, so the fill spans artists.
     for related in _related_artists(conn, seed, api=api, now=now):
+        if new_artists and _has_artist(index, related.name):
+            continue  # don't spend a top-tracks call on an artist we'd skip anyway
         for t in _top_tracks(conn, related.name, api=api, now=now):
             if consider(t, related.match, Basis.ARTIST):
                 break

@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (stdlib `difflib`, no new dependency)
 - The seed text of `similar`, `discover` and `play` uses the same forgiving
   search; the best match wins, and only a tie between different songs is ambiguous
+- `discover --new-artists` and `play --new-artists` skip songs by artists the
+  playlist already has (the seed's own included), for songs *and* names you
+  don't know yet; `byp serve` has it as an "only new artists" checkbox
+
+### Changed
+- `byp serve` mixes 5 new songs (from `discover`) into a song's queue by
+  default, so discovering doesn't need opting into; set "+ new" to 0 to turn it
+  off. `byp play --new` still defaults to 0
 
 ### Fixed
 - `sync` no longer overwrites a video's stored title, channel and metadata with

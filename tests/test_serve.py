@@ -146,6 +146,41 @@ def test_new_songs_are_offered_and_mixed_in_only_with_yt_dlp() -> None:
 
 
 @pytest.mark.usefixtures("conn")
+def test_tapping_a_song_mixes_in_new_songs_by_default_and_0_turns_it_off() -> None:
+    resolver = FakeResolver(hits={"New Band - Fresh Song": YoutubeHit("vFresh", "t", "c")})
+    tapped = _client(resolver=resolver).get("/play", params={"v": "vLoser"})
+    assert "vFresh" in _play_ids(tapped.text)
+
+    off = _client(resolver=resolver).get("/play", params={"v": "vLoser", "new": 0})
+    assert "vFresh" not in _play_ids(off.text)
+
+
+@pytest.mark.usefixtures("conn")
+def test_only_new_artists_drops_new_songs_by_playlist_artists() -> None:
+    api = FakeLastfm(
+        similar={
+            norm("Tame Impala", "Loser"): [
+                *LOSER_SIMILAR,
+                SimilarTrack("Adele", "Skyfall", 0.3, None, None),  # new song, known artist
+            ]
+        }
+    )
+    resolver = FakeResolver(
+        hits={
+            "New Band - Fresh Song": YoutubeHit("vFresh", "t", "c"),
+            "Adele - Skyfall": YoutubeHit("vSky", "t", "c"),
+        }
+    )
+    client = _client(lastfm=api, resolver=resolver)
+    assert {"vFresh", "vSky"} <= set(_play_ids(client.get("/play", params={"v": "vLoser"}).text))
+
+    page = client.get("/play", params={"v": "vLoser", "new_artists": 1})
+    assert "vFresh" in _play_ids(page.text)
+    assert "vSky" not in _play_ids(page.text)
+    assert "name=new_artists value=1 checked" in page.text
+
+
+@pytest.mark.usefixtures("conn")
 @pytest.mark.parametrize(
     "params",
     [
