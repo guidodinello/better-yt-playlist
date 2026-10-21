@@ -31,14 +31,21 @@ from fastapi.responses import HTMLResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .lastfm import LastfmApi, LastfmError
-from .play import WATCH_VIDEOS_MAX, QueueEntry, Reason, artist_queue, seed_queue, watch_url
+from .play import (
+    DEFAULT_NEW,
+    WATCH_VIDEOS_MAX,
+    QueueEntry,
+    Reason,
+    artist_queue,
+    seed_queue,
+    watch_url,
+)
 from .search import search
 from .similar import SeedError, YoutubeResolver, resolve_seed
 
 DEFAULT_LIMIT = 25
 LIMIT_CHOICES = (10, 25, WATCH_VIDEOS_MAX)
 MAX_NEW = 10  # each new song is a yt-dlp search on first use; keep a tap from taking minutes
-DEFAULT_NEW = 5  # discovering is the point; 0 on the page turns it off
 _IDENTIFIED = ("matched", "manual")
 
 

@@ -1,0 +1,20 @@
+[Unit]
+Description=Look up every song's new songs ahead of time, so the page is fast
+# Started by byp-sync.service (OnSuccess=), after the day's songs are mirrored and matched.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/better-yt-playlist
+# BYP_LASTFM_API_KEY and BYP_SONGS_PLAYLIST, as for byp-sync.service.
+EnvironmentFile=%h/projects/better-yt-playlist/byp.env
+# yt-dlp from `uv tool install yt-dlp` lives in ~/.local/bin (see byp-serve.service).
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp warm
+# Background work: page taps on the same box come first.
+Nice=10
+StandardOutput=journal
+StandardError=journal
+# --max-searches bounds a run (~30 min on the Pi); this is only a backstop.
+TimeoutStartSec=3h

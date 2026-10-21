@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import subprocess
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,6 +18,8 @@ from better_yt_playlist.similar import (
     Basis,
     SeedError,
     YoutubeHit,
+    YoutubeLookupFailed,
+    YtDlpResolver,
     discover,
     resolve_seed,
     similar,
@@ -395,3 +398,40 @@ def test_discover_batches_never_search_more_than_needed(conn: sqlite3.Connection
     assert [r.video_id for r in recs] == ["vA", "vC", "vD"]
     # A, B, C in the first batch; one still missing, so only D next. E, F untouched.
     assert sorted(resolver.calls) == ["A - Song", "B - Song", "C - Song", "D - Song"]
+
+
+def test_a_failed_search_is_skipped_and_not_cached(conn: sqlite3.Connection) -> None:
+    api = _api_with_similar(_sim("A", "Song", 0.9), _sim("B", "Song", 0.8))
+
+    class FailsOnA(FakeResolver):
+        def resolve(self, artist: str, track: str) -> YoutubeHit | None:
+            if artist == "A":
+                raise YoutubeLookupFailed("HTTP Error 429")
+            return FakeResolver.resolve(self, artist, track)
+
+    resolver = FailsOnA(hits={"B - Song": YoutubeHit("vB", "t", "c")})
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=5, now=NOW)
+    assert [r.video_id for r in recs] == ["vB"]
+    assert resolver.calls == ["B - Song"]  # A tried once (in the batch), not again
+    cached = {r["artist"] for r in conn.execute("SELECT artist FROM youtube_lookups")}
+    assert cached == {"b"}  # A is retried next time
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "expected"),
+    [(0, "", None), (0, "vX\tX - Song\tX\n", YoutubeHit("vX", "X - Song", "X"))],
+)
+def test_ytdlp_resolver_no_results_is_none(
+    monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, expected: YoutubeHit | None
+) -> None:
+    done = subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: done)
+    assert YtDlpResolver().resolve("X", "Song") == expected
+
+
+def test_ytdlp_resolver_raises_when_yt_dlp_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    done = subprocess.CompletedProcess([], 1, stdout="", stderr="ERROR: HTTP Error 429\n")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: done)
+    with pytest.raises(YoutubeLookupFailed, match="429"):
+        YtDlpResolver().resolve("X", "Song")

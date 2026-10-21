@@ -26,6 +26,7 @@ from .similar import (
 )
 
 WATCH_VIDEOS_MAX = 50
+DEFAULT_NEW = 5  # new songs the page mixes into a queue; what `byp warm` pre-fetches
 _WATCH_VIDEOS_URL = "https://www.youtube.com/watch_videos?video_ids="
 
 
