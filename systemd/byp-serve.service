@@ -12,6 +12,9 @@ Type=simple
 WorkingDirectory=%h/projects/better-yt-playlist
 # BYP_LASTFM_API_KEY and BYP_SONGS_PLAYLIST, as for byp-sync.service.
 EnvironmentFile=%h/projects/better-yt-playlist/byp.env
+# The user manager's PATH lacks ~/.local/bin, where `uv tool install yt-dlp` puts
+# it; without yt-dlp the page offers no new songs.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
 # All interfaces rather than the tailnet IP: tailscaled may not be up yet at boot.
 ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp serve --host 0.0.0.0 --port 8765
 Restart=on-failure

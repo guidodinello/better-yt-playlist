@@ -113,6 +113,7 @@ network. Ours runs on a Raspberry Pi and the phone reaches it over
 reads the same `byp.env` as the daily timer below):
 
 ```bash
+uv tool install yt-dlp                   # for new songs; `uv tool upgrade yt-dlp` when YouTube breaks it
 ln -s "$PWD"/systemd/byp-serve.service ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now byp-serve.service
 ```
