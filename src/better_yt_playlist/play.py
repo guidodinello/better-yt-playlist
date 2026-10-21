@@ -102,11 +102,15 @@ def seed_queue(
     api: LastfmApi,
     limit: int,
     new: int = 0,
+    new_artists: bool = False,
     resolver: YoutubeResolver | None = None,
     shuffle: bool = False,
     rng: random.Random | None = None,
 ) -> list[QueueEntry]:
-    """``seed``, then its similar playlist songs, with ``new`` songs from ``discover`` mixed in."""
+    """``seed``, then its similar playlist songs, with ``new`` songs from ``discover`` mixed in.
+
+    ``new_artists``: the new songs are only by artists the playlist doesn't have.
+    """
     if new and resolver is None:
         raise ValueError("new songs need a YouTube resolver")
     limit = min(limit, WATCH_VIDEOS_MAX)
@@ -121,6 +125,7 @@ def seed_queue(
             api=api,
             resolver=resolver,
             limit=min(new, limit - 1),  # each is a yt-dlp search; don't fetch extras
+            new_artists=new_artists,
         )
         extra = tagged(found, Reason.NEW)
     queue = build_queue(head, main, extra, limit=limit)

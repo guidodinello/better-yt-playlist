@@ -73,6 +73,7 @@ byp match --set VIDEO_ID "Artist" "Track"   # fix one by hand; never overwritten
 byp similar "loser tame impala"          # songs in the playlist similar to that one
 byp discover "loser tame impala"         # similar songs NOT in it, with YouTube links
 byp discover vIdEoId --limit 5 --format json
+byp discover "loser" --new-artists       # only by artists the playlist doesn't have
 ```
 
 The seed is a video id or text from the song's title/artist/track, matched
@@ -92,8 +93,11 @@ instant.
 The same queues as a small web page: search the playlist, tap a song (or its
 artist), tap **Play**. Search is forgiving: words in any order, case,
 accents and punctuation ignored, prefixes (`sick` → SICKO MODE) and typos
-(`goosbumps`) found, best match first. Shuffle, length and (with yt-dlp
-installed) new songs are options on the page. Server-rendered HTML, no login, no quota. It needs the
+(`goosbumps`) found, best match first. Shuffle and length are options on the
+page. With yt-dlp installed, a song's queue mixes in 5 new songs by default (set
+"+ new" to 0 for none), and "only new artists" keeps those to artists the
+playlist doesn't have. The first tap on a song is slower: each new song is a
+yt-dlp search, cached after that. Server-rendered HTML, no login, no quota. It needs the
 `serve` extra:
 
 ```bash
@@ -142,6 +146,7 @@ playlist). No login and no API quota.
 ```bash
 byp play "loser tame impala"             # the song, then similar playlist songs
 byp play "loser" --new 5                 # mix in 5 similar songs you don't have yet
+byp play "loser" --new 5 --new-artists   # ...by artists you don't have yet either
 byp play --artist "Tame Impala"          # the playlist's songs by an artist
 byp play "loser" --limit 40 --shuffle --open   # longer, shuffled, opened in the browser
 ```

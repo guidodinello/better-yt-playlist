@@ -322,3 +322,76 @@ def test_artist_fill_caps_songs_per_artist_before_leftovers(conn: sqlite3.Connec
         ("Tame Impala", 1.0), ("Tame Impala", 1.0), ("Adele", 0.3), ("Adele", 0.3),
         ("Tame Impala", 1.0), ("Adele", 0.3),
     ]  # fmt: skip
+
+
+def test_discover_new_artists_skips_every_artist_the_playlist_has(
+    conn: sqlite3.Connection,
+) -> None:
+    api = FakeLastfm(
+        known=[LOSER],
+        similar={
+            ("tame impala", "loser"): [
+                _sim("Adele", "Skyfall", 0.9),  # new song, known artist
+                _sim("MGMT", "Electric Feel", 0.8),
+                _sim("Adele & MGMT", "Duet", 0.7),  # credits a known artist first
+            ]
+        },
+        similar_artist_map={
+            "tame impala": [SimilarArtist("Adele", 0.6), SimilarArtist("Pond", 0.5)]
+        },
+        top={
+            "tame impala": [TrackInfo("Tame Impala", "Elephant", None, None)],
+            "adele": [TrackInfo("Adele", "Easy on Me", None, None)],
+            "pond": [TrackInfo("Pond", "Sitting Up on Our Crane", None, None)],
+        },
+    )
+    resolver = FakeResolver(
+        hits={
+            "Adele - Skyfall": YoutubeHit("vSky", "t", "c"),
+            "MGMT - Electric Feel": YoutubeHit("vMGMT", "t", "c"),
+            "Adele & MGMT - Duet": YoutubeHit("vDuet", "t", "c"),
+            "Tame Impala - Elephant": YoutubeHit("vEle", "t", "c"),
+            "Adele - Easy on Me": YoutubeHit("vEasy", "t", "c"),
+            "Pond - Sitting Up on Our Crane": YoutubeHit("vPond", "t", "c"),
+        }
+    )
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+
+    everything = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=10, now=NOW)
+    assert [r.video_id for r in everything] == ["vSky", "vMGMT", "vDuet", "vEle", "vEasy", "vPond"]
+
+    fresh = discover(
+        conn, PLAYLIST, seed, api=api, resolver=resolver, limit=10, new_artists=True, now=NOW
+    )
+    assert [r.video_id for r in fresh] == ["vMGMT", "vPond"]
+
+
+def test_discover_runs_its_youtube_searches_in_parallel(conn: sqlite3.Connection) -> None:
+    import threading
+
+    names = ["A", "B", "C"]
+    api = _api_with_similar(*(_sim(n, "Song", 0.5) for n in names))
+    # Each search waits for all three to be in flight: one-by-one would time out.
+    barrier = threading.Barrier(len(names), timeout=5)
+
+    class Concurrent(FakeResolver):
+        def resolve(self, artist: str, track: str) -> YoutubeHit | None:
+            barrier.wait()
+            return FakeResolver.resolve(self, artist, track)
+
+    resolver = Concurrent(hits={f"{n} - Song": YoutubeHit(f"v{n}", "t", "c") for n in names})
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=3, now=NOW)
+    assert [r.video_id for r in recs] == ["vA", "vB", "vC"]  # still ranked
+
+
+def test_discover_batches_never_search_more_than_needed(conn: sqlite3.Connection) -> None:
+    api = _api_with_similar(*(_sim(n, "Song", 0.5) for n in "ABCDEF"))
+    resolver = FakeResolver(
+        hits={f"{n} - Song": YoutubeHit(f"v{n}", "t", "c") for n in "ACDEF"}  # B: not found
+    )
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=3, now=NOW)
+    assert [r.video_id for r in recs] == ["vA", "vC", "vD"]
+    # A, B, C in the first batch; one still missing, so only D next. E, F untouched.
+    assert sorted(resolver.calls) == ["A - Song", "B - Song", "C - Song", "D - Song"]

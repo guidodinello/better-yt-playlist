@@ -133,6 +133,12 @@ def main() -> int:
         )
         p_rec.add_argument("--limit", type=int, default=10)
         p_rec.add_argument("--format", choices=("table", "json"), default="table", dest="fmt")
+        if name == "discover":
+            p_rec.add_argument(
+                "--new-artists",
+                action="store_true",
+                help="Skip songs by artists the playlist already has",
+            )
 
     p_play = sub.add_parser(
         "play", help="A YouTube watch link: a song then similar ones, or an artist's songs"
@@ -147,6 +153,11 @@ def main() -> int:
     )
     p_play.add_argument(
         "--new", type=int, default=0, metavar="N", help="Mix in N similar songs not in the playlist"
+    )
+    p_play.add_argument(
+        "--new-artists",
+        action="store_true",
+        help="The --new songs are only by artists the playlist doesn't have",
     )
     p_play.add_argument("--shuffle", action="store_true", help="Shuffle all but the seed")
     p_play.add_argument("--open", action="store_true", help="Open the link in the browser")
@@ -169,6 +180,8 @@ def main() -> int:
             raise SystemExit("pass either a seed song or --artist")
         if args.artist and args.new:
             raise SystemExit("--new needs a seed song")
+        if args.new_artists and not args.new:
+            raise SystemExit("--new-artists needs --new N")
         if args.limit < 1 or args.new < 0:
             raise SystemExit("--limit must be at least 1 and --new can't be negative")
         from .lastfm import LastfmError
@@ -330,7 +343,13 @@ def _run_song_command(args: argparse.Namespace) -> None:
         recs = similar(conn, args.playlist, seed, api=api, limit=args.limit)
     else:
         recs = discover(
-            conn, args.playlist, seed, api=api, resolver=YtDlpResolver(), limit=args.limit
+            conn,
+            args.playlist,
+            seed,
+            api=api,
+            resolver=YtDlpResolver(),
+            limit=args.limit,
+            new_artists=args.new_artists,
         )
 
     if args.fmt == "json":
@@ -402,6 +421,7 @@ def _run_play(args: argparse.Namespace) -> None:
             api=api,
             limit=args.limit,
             new=args.new,
+            new_artists=args.new_artists,
             resolver=YtDlpResolver() if args.new else None,
             shuffle=args.shuffle,
         )
