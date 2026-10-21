@@ -37,10 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   playlist already has (the seed's own included), for songs *and* names you
   don't know yet; `byp serve` has it as an "only new artists" checkbox
 
-- `byp warm`: runs `discover` for every song ahead of time (both variants), so
-  the page's first tap on a song is instant; at most `--max-searches` (1500)
-  yt-dlp searches per run, continuing next run. `systemd/byp-warm.service` runs
-  it after each successful daily sync (`OnSuccess=`)
+- `byp warm`: builds every song's page queue ahead of time (with and without
+  "only new artists"), so the page's first tap on a song reads cached results.
+  One paced search at a time; a run stops after `--max-minutes` (60) or 10
+  failed searches in a row, and the next run continues. `systemd/byp-warm.service`
+  runs it after each successful daily sync (`OnSuccess=`)
 
 ### Changed
 - `byp serve` mixes 5 new songs (from `discover`) into a song's queue by

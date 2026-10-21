@@ -168,10 +168,10 @@ def main() -> int:
     )
     p_warm.add_argument("--playlist", default=songs_default, help="(default: $BYP_SONGS_PLAYLIST)")
     p_warm.add_argument(
-        "--max-searches",
-        type=int,
-        default=1500,
-        help="Stop after this many yt-dlp searches; the next run continues (default: 1500)",
+        "--max-minutes",
+        type=float,
+        default=60,
+        help="Stop after this long; the next run continues (default: 60)",
     )
 
     p_serve = sub.add_parser(
@@ -213,8 +213,8 @@ def main() -> int:
     if args.command == "warm":
         if not args.playlist:
             raise SystemExit("no playlist — pass --playlist or set BYP_SONGS_PLAYLIST")
-        if args.max_searches < 1:
-            raise SystemExit("--max-searches must be at least 1")
+        if args.max_minutes <= 0:
+            raise SystemExit("--max-minutes must be positive")
         from .lastfm import LastfmError
 
         try:
@@ -349,7 +349,7 @@ def _run_warm(args: argparse.Namespace) -> None:
         args.playlist,
         api=LastfmClient.from_env(),
         resolver=YtDlpResolver(),
-        max_searches=args.max_searches,
+        max_minutes=args.max_minutes,
     )
     logger.info(
         "warmed %d of %d (%d songs, then only new artists): %d searches, %d failed",

@@ -1,17 +1,18 @@
-"""``warm``: run ``discover`` for every song ahead of time, so the page's first tap is instant.
+"""``warm``: build every song's page queue ahead of time, so the first tap is instant.
 
-A tap on a song the page hasn't seen runs Last.fm calls and a yt-dlp search per
-new song — about 20 s on the Raspberry Pi. ``warm`` makes the same calls the
-page would (``DEFAULT_NEW`` new songs, then the "only new artists" variant), so
-they land in the caches ``discover`` already reads: ``similar_tracks`` and
-``artist_cache`` (30 days) and ``youtube_lookups`` (forever). No state of its
-own: a song whose lookups are all cached costs no search, so each run picks up
-where the last one stopped, and after the first nights only new songs (and
-Last.fm's 30-day refreshes) cost anything.
+A tap on a song the page hasn't seen makes Last.fm calls and a yt-dlp search
+per new song, about 20 s on the Raspberry Pi. ``warm`` builds the same queue
+the page would (:func:`.play.seed_queue` with the page's defaults, then again
+with "only new artists"), so those calls land in the caches the page reads:
+``similar_tracks`` and ``artist_cache`` (30 days) and ``youtube_lookups``
+(forever). It keeps no state of its own. A song whose lookups are all cached
+costs no search, so each run picks up where the last stopped, and after the
+first round only new songs (and Last.fm's 30-day refreshes) cost anything.
 
-Each run stops after ``max_searches`` yt-dlp searches, and early if searches
-keep failing — YouTube throttling a burst of searches looks like that — so one
-night never hammers YouTube.
+Unlike a tap, it isn't in a hurry: one search at a time with a pause after
+each, so YouTube sees a trickle from this IP rather than bursts. A run stops
+at its time limit, and early when searches fail several times in a row
+(YouTube throttling looks like that).
 """
 
 from __future__ import annotations
@@ -19,64 +20,86 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from .lastfm import LastfmApi
-from .play import DEFAULT_NEW
-from .similar import Seed, YoutubeHit, YoutubeLookupFailed, YoutubeResolver, discover
+from .play import DEFAULT_LIMIT, DEFAULT_NEW, seed_queue
+from .similar import Seed, YoutubeHit, YoutubeLookupFailed, YoutubeResolver
 from .titles import norm
 
 logger = logging.getLogger("byp")
 
-MAX_FAILED_SEARCHES = 20
-_PROGRESS_EVERY = 100
+MAX_FAILED_IN_A_ROW = 10
+PAUSE_S = 1.0
+_PROGRESS_EVERY = 50
 
 
 class WarmStopped(Exception):
-    """Stop the run: the search budget is spent, or searches keep failing."""
+    """Stop the run: out of time, or searches keep failing."""
 
 
 @dataclass(slots=True)
 class WarmStats:
     songs: int = 0  # songs in the playlist (each warmed twice: all, then only new artists)
-    warmed: int = 0  # (song, variant) runs that finished
+    warmed: int = 0  # (song, variant) queues built
     searches: int = 0
     failed: int = 0
     stopped: str | None = None
 
 
-class _Budgeted:
-    """Satisfies :class:`.similar.YoutubeResolver`; counts searches and stops the run.
+class _Paced:
+    """Satisfies :class:`.similar.YoutubeResolver`: one search at a time, paced, time-boxed.
 
-    Called from ``discover``'s worker threads, hence the lock.
+    ``discover`` calls it from worker threads; the lock makes them take turns.
     """
 
-    def __init__(self, inner: YoutubeResolver, max_searches: int) -> None:
+    def __init__(
+        self,
+        inner: YoutubeResolver,
+        *,
+        deadline: float,
+        pause_s: float,
+        sleep: Callable[[float], None],
+        clock: Callable[[], float],
+    ) -> None:
         self._inner = inner
-        self._max = max_searches
+        self._deadline = deadline
+        self._pause_s = pause_s
+        self._sleep = sleep
+        self._clock = clock
         self._lock = threading.Lock()
+        self._failed_in_a_row = 0
         self.searches = 0
         self.failed = 0
 
+    def check(self) -> None:
+        if self._clock() >= self._deadline:
+            raise WarmStopped("time limit reached")
+        if self._failed_in_a_row >= MAX_FAILED_IN_A_ROW:
+            raise WarmStopped(f"{self._failed_in_a_row} searches failed in a row — throttled?")
+
     def resolve(self, artist: str, track: str) -> YoutubeHit | None:
         with self._lock:
-            if self.searches >= self._max:
-                raise WarmStopped(f"search budget of {self._max} spent")
-            if self.failed >= MAX_FAILED_SEARCHES:
-                raise WarmStopped(f"{self.failed} searches failed — YouTube throttling?")
+            self.check()
             self.searches += 1
-        try:
-            return self._inner.resolve(artist, track)
-        except YoutubeLookupFailed as exc:
-            with self._lock:
+            try:
+                hit = self._inner.resolve(artist, track)
+            except YoutubeLookupFailed as exc:
                 self.failed += 1
-            logger.info("search failed: %s", exc)
-            raise
+                self._failed_in_a_row += 1
+                logger.info("search failed: %s", exc)
+                raise
+            else:
+                self._failed_in_a_row = 0
+                return hit
+            finally:
+                self._sleep(self._pause_s)
 
 
 def _seeds(conn: sqlite3.Connection, playlist_id: str) -> list[Seed]:
-    """Each matched, playable song once (the first upload of a song), in playlist order."""
+    """Each matched, playable song once (its first upload), in playlist order."""
     seeds: dict[tuple[str, str], Seed] = {}
     for r in conn.execute(
         """
@@ -102,28 +125,36 @@ def warm(
     *,
     api: LastfmApi,
     resolver: YoutubeResolver,
-    max_searches: int,
-    now: datetime | None = None,
+    max_minutes: float,
+    pause_s: float = PAUSE_S,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> WarmStats:
-    """Fill the caches the page's new songs come from, for every song in the playlist."""
-    now = now or datetime.now(UTC)
+    """Fill the caches a tap on each song reads, for every song in the playlist."""
     seeds = _seeds(conn, playlist_id)
-    budgeted = _Budgeted(resolver, max_searches)
+    paced = _Paced(
+        resolver,
+        deadline=clock() + max_minutes * 60,
+        pause_s=pause_s,
+        sleep=sleep,
+        clock=clock,
+    )
     stats = WarmStats(songs=len(seeds))
     try:
-        # All songs' default queues before any "only new artists" one: the default
-        # is what a tap shows, so a budget that runs out covers it first.
+        # Every song's default queue before any "only new artists" one: the
+        # default is what a tap shows, so a short run covers it first.
         for new_artists in (False, True):
             for seed in seeds:
-                discover(
+                paced.check()  # cached songs make no search, but may refresh Last.fm
+                seed_queue(
                     conn,
                     playlist_id,
                     seed,
                     api=api,
-                    resolver=budgeted,
-                    limit=DEFAULT_NEW,
+                    limit=DEFAULT_LIMIT,
+                    new=DEFAULT_NEW,
                     new_artists=new_artists,
-                    now=now,
+                    resolver=paced,
                 )
                 stats.warmed += 1
                 if stats.warmed % _PROGRESS_EVERY == 0:
@@ -131,9 +162,9 @@ def warm(
                         "warmed %d of %d (%d searches)",
                         stats.warmed,
                         2 * len(seeds),
-                        budgeted.searches,
+                        paced.searches,
                     )
     except WarmStopped as exc:
         stats.stopped = str(exc)
-    stats.searches, stats.failed = budgeted.searches, budgeted.failed
+    stats.searches, stats.failed = paced.searches, paced.failed
     return stats

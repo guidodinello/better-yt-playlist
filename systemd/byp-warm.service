@@ -16,5 +16,6 @@ ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp warm
 Nice=10
 StandardOutput=journal
 StandardError=journal
-# --max-searches bounds a run (~30 min on the Pi); this is only a backstop.
-TimeoutStartSec=3h
+# A run stops itself after --max-minutes (60), well before the 04:30 herdr-routines
+# jobs; this is only a backstop.
+TimeoutStartSec=90min
