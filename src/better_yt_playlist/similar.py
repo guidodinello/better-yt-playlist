@@ -16,6 +16,10 @@ track (``artist.getTopTracks``). Those rows carry ``basis = "artist"``. An
 artist name shared by several acts (e.g. "A.M.") makes this fallback
 unreliable — Last.fm merges them into one profile.
 
+``discover`` runs its yt-dlp searches in parallel, in batches no bigger than
+the number of songs still missing, so it never searches more than a one-by-one
+run would. Only the searches leave the main thread; the connection doesn't.
+
 ``discover(new_artists=True)`` also drops songs by any artist the playlist
 already has, the seed's own included: new songs *and* new names.
 """
@@ -25,7 +29,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -44,6 +49,7 @@ _SIMILAR_ARTISTS_LIMIT = 50
 _TOP_TRACKS_LIMIT = 5
 _PER_ARTIST = 2
 _YTDLP_TIMEOUT_S = 60
+_PARALLEL_LOOKUPS = 5
 _TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _IDENTIFIED = (MatchStatus.MATCHED, MatchStatus.MANUAL)
 
@@ -390,22 +396,16 @@ def similar(
     return out
 
 
-def _lookup_youtube(
-    conn: sqlite3.Connection,
-    resolver: YoutubeResolver,
-    artist: str,
-    track: str,
-    now: datetime,
-) -> YoutubeHit | None:
-    key = norm(artist, track)
-    cached = conn.execute(
+def _cached_youtube(conn: sqlite3.Connection, key: tuple[str, str]) -> sqlite3.Row | None:
+    """The stored lookup row for ``key``; its ``video_id`` is NULL when nothing was found."""
+    return conn.execute(
         "SELECT video_id, title, channel FROM youtube_lookups WHERE artist = ? AND track = ?", key
     ).fetchone()
-    if cached is not None:
-        if cached["video_id"] is None:
-            return None
-        return YoutubeHit(cached["video_id"], cached["title"], cached["channel"])
-    hit = resolver.resolve(artist, track)
+
+
+def _store_youtube(
+    conn: sqlite3.Connection, key: tuple[str, str], hit: YoutubeHit | None, now: datetime
+) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO youtube_lookups "
         "(artist, track, video_id, title, channel, looked_up_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -417,8 +417,47 @@ def _lookup_youtube(
             _ts(now),
         ),
     )
+
+
+def _lookup_youtube(
+    conn: sqlite3.Connection,
+    resolver: YoutubeResolver,
+    artist: str,
+    track: str,
+    now: datetime,
+) -> YoutubeHit | None:
+    key = norm(artist, track)
+    cached = _cached_youtube(conn, key)
+    if cached is not None:
+        if cached["video_id"] is None:
+            return None
+        return YoutubeHit(cached["video_id"], cached["title"], cached["channel"])
+    hit = resolver.resolve(artist, track)
+    _store_youtube(conn, key, hit, now)
     conn.commit()
     return hit
+
+
+def _prefetch_youtube(
+    conn: sqlite3.Connection,
+    resolver: YoutubeResolver,
+    tracks: Iterable[TrackInfo | SimilarTrack],
+    now: datetime,
+) -> None:
+    """Search the uncached ``tracks`` in parallel and store them, so ``_lookup_youtube`` hits."""
+    todo: dict[tuple[str, str], tuple[str, str]] = {}  # norm key -> (artist, track) as named
+    for t in tracks:
+        key = norm(t.artist, t.track)
+        if key not in todo and _cached_youtube(conn, key) is None:
+            todo[key] = (t.artist, t.track)
+    if not todo:
+        return
+    artists, names = zip(*todo.values(), strict=True)
+    with ThreadPoolExecutor(max_workers=min(len(todo), _PARALLEL_LOOKUPS)) as pool:
+        hits = list(pool.map(resolver.resolve, artists, names))
+    for key, hit in zip(todo, hits, strict=True):
+        _store_youtube(conn, key, hit, now)
+    conn.commit()
 
 
 def discover(
@@ -441,14 +480,17 @@ def discover(
     seen = {norm(seed.artist, seed.track)}
     out: list[Recommendation] = []
 
-    def consider(t: TrackInfo | SimilarTrack, match: float, basis: Basis) -> bool:
-        """Add ``t`` if it's new and on YouTube; report whether it was added."""
+    def eligible(t: TrackInfo | SimilarTrack) -> bool:
         key = norm(t.artist, t.track)
         if key in seen or key in index.by_key:
             return False
-        seen.add(key)
-        if new_artists and _has_artist(index, t.artist):
+        return not (new_artists and _has_artist(index, t.artist))
+
+    def consider(t: TrackInfo | SimilarTrack, match: float, basis: Basis) -> bool:
+        """Add ``t`` if it's new and on YouTube; report whether it was added."""
+        if not eligible(t):
             return False
+        seen.add(norm(t.artist, t.track))
         hit = _lookup_youtube(conn, resolver, t.artist, t.track, now)
         # A name variant `norm` missed can still be the very video you have.
         if hit is None or hit.video_id in index.video_ids:
@@ -456,18 +498,42 @@ def discover(
         out.append(Recommendation(t.artist, t.track, match, t.url, hit.video_id, hit.title, basis))
         return True
 
-    for t in similar_for(conn, seed, api=api, now=now):
-        consider(t, t.match, Basis.TRACK)
-        if len(out) >= limit:
-            return out
+    # Batches of at most the songs still missing: if every search hits, the
+    # batch fills the list exactly, so none is wasted.
+    pending = iter(similar_for(conn, seed, api=api, now=now))
+    while len(out) < limit:
+        batch: list[SimilarTrack] = []
+        for t in pending:
+            if eligible(t):
+                batch.append(t)
+                if len(batch) == limit - len(out):
+                    break
+        if not batch:
+            break
+        _prefetch_youtube(conn, resolver, batch, now)
+        for t in batch:
+            consider(t, t.match, Basis.TRACK)
+            if len(out) >= limit:
+                return out
 
     # One top track per related artist, so the fill spans artists.
-    for related in _related_artists(conn, seed, api=api, now=now):
-        if new_artists and _has_artist(index, related.name):
-            continue  # don't spend a top-tracks call on an artist we'd skip anyway
-        for t in _top_tracks(conn, related.name, api=api, now=now):
-            if consider(t, related.match, Basis.ARTIST):
-                break
-        if len(out) >= limit:
-            return out
+    related = [
+        r
+        for r in _related_artists(conn, seed, api=api, now=now)
+        # Don't spend a top-tracks call on an artist we'd skip anyway.
+        if not (new_artists and _has_artist(index, r.name))
+    ]
+    start = 0
+    while start < len(related) and len(out) < limit:
+        artists = related[start : start + limit - len(out)]
+        start += len(artists)
+        top = {a.name: _top_tracks(conn, a.name, api=api, now=now) for a in artists}
+        firsts = (next((t for t in tracks if eligible(t)), None) for tracks in top.values())
+        _prefetch_youtube(conn, resolver, [t for t in firsts if t is not None], now)
+        for a in artists:
+            for t in top[a.name]:
+                if consider(t, a.match, Basis.ARTIST):
+                    break
+            if len(out) >= limit:
+                return out
     return out

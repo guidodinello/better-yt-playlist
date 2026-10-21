@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `byp serve` mixes 5 new songs (from `discover`) into a song's queue by
   default, so discovering doesn't need opting into; set "+ new" to 0 to turn it
   off. `byp play --new` still defaults to 0
+- `discover` (and so `play --new` and the page's new songs) runs its yt-dlp
+  searches up to 5 at a time, never more than a one-by-one run would make; a
+  song's first tap on the page went from ~12 s to ~2–8 s
 
 ### Fixed
 - `sync` no longer overwrites a video's stored title, channel and metadata with

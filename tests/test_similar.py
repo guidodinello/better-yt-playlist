@@ -364,3 +364,34 @@ def test_discover_new_artists_skips_every_artist_the_playlist_has(
         conn, PLAYLIST, seed, api=api, resolver=resolver, limit=10, new_artists=True, now=NOW
     )
     assert [r.video_id for r in fresh] == ["vMGMT", "vPond"]
+
+
+def test_discover_runs_its_youtube_searches_in_parallel(conn: sqlite3.Connection) -> None:
+    import threading
+
+    names = ["A", "B", "C"]
+    api = _api_with_similar(*(_sim(n, "Song", 0.5) for n in names))
+    # Each search waits for all three to be in flight: one-by-one would time out.
+    barrier = threading.Barrier(len(names), timeout=5)
+
+    class Concurrent(FakeResolver):
+        def resolve(self, artist: str, track: str) -> YoutubeHit | None:
+            barrier.wait()
+            return FakeResolver.resolve(self, artist, track)
+
+    resolver = Concurrent(hits={f"{n} - Song": YoutubeHit(f"v{n}", "t", "c") for n in names})
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=3, now=NOW)
+    assert [r.video_id for r in recs] == ["vA", "vB", "vC"]  # still ranked
+
+
+def test_discover_batches_never_search_more_than_needed(conn: sqlite3.Connection) -> None:
+    api = _api_with_similar(*(_sim(n, "Song", 0.5) for n in "ABCDEF"))
+    resolver = FakeResolver(
+        hits={f"{n} - Song": YoutubeHit(f"v{n}", "t", "c") for n in "ACDEF"}  # B: not found
+    )
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=3, now=NOW)
+    assert [r.video_id for r in recs] == ["vA", "vC", "vD"]
+    # A, B, C in the first batch; one still missing, so only D next. E, F untouched.
+    assert sorted(resolver.calls) == ["A - Song", "B - Song", "C - Song", "D - Song"]
