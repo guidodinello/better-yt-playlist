@@ -95,8 +95,8 @@ artist), tap **Play**. Search is forgiving: words in any order, case,
 accents and punctuation ignored, prefixes (`sick` → SICKO MODE) and typos
 (`goosbumps`) found, best match first. Shuffle and length are options on the
 page. With yt-dlp installed, a song's queue mixes in 5 new songs by default (set
-"+ new" to 0 for none), and "only new artists" keeps those to artists the
-playlist doesn't have. The first tap on a song is slower: each new song is a
+"+ new" to 0 for none) — up to 10 when the playlist has few songs related to
+it — and "only new artists" keeps those to artists the playlist doesn't have. The first tap on a song is slower: each new song is a
 yt-dlp search, cached after that. Server-rendered HTML, no login, no quota. It needs the
 `serve` extra:
 

@@ -29,6 +29,10 @@ WATCH_VIDEOS_MAX = 50
 # The page's queue for a song; `byp warm` builds the same one ahead of time.
 DEFAULT_LIMIT = 25
 DEFAULT_NEW = 5  # new songs mixed in
+# A seed with few related songs in the playlist gets more new ones than asked
+# for, up to this many, so its queue isn't just the seed. Each is a yt-dlp
+# search on first use, so keep a tap quick.
+FILL_NEW_MAX = 10
 _WATCH_VIDEOS_URL = "https://www.youtube.com/watch_videos?video_ids="
 
 
@@ -112,6 +116,10 @@ def seed_queue(
 ) -> list[QueueEntry]:
     """``seed``, then its similar playlist songs, with ``new`` songs from ``discover`` mixed in.
 
+    When the playlist has too few related songs to fill ``limit``, new songs
+    fill the gap, up to :data:`FILL_NEW_MAX` (or ``new``, if more). ``new=0``
+    still means none.
+
     ``new_artists``: the new songs are only by artists the playlist doesn't have.
     """
     if new and resolver is None:
@@ -121,13 +129,15 @@ def seed_queue(
     main = from_similar(similar(conn, playlist_id, seed, api=api, limit=limit - 1))
     extra: list[QueueEntry] = []
     if new and resolver is not None:
+        gap = limit - 1 - len(main)
         found = discover(
             conn,
             playlist_id,
             seed,
             api=api,
             resolver=resolver,
-            limit=min(new, limit - 1),  # each is a yt-dlp search; don't fetch extras
+            # Each is a yt-dlp search; don't fetch more than fit.
+            limit=min(max(new, min(gap, FILL_NEW_MAX)), limit - 1),
             new_artists=new_artists,
         )
         extra = tagged(found, Reason.NEW)
