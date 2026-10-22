@@ -295,6 +295,61 @@ def test_discover_fills_with_one_top_track_per_similar_artist(conn: sqlite3.Conn
     ]
 
 
+def test_discover_takes_more_top_tracks_from_the_seeds_own_artist(
+    conn: sqlite3.Connection,
+) -> None:
+    def top(artist: str, *tracks: str) -> list[TrackInfo]:
+        return [TrackInfo(artist, t, None, None) for t in tracks]
+
+    api = FakeLastfm(
+        known=[LOSER],
+        similar_artist_map={"tame impala": [SimilarArtist("MGMT", 0.9)]},
+        top={
+            # Loser is the seed and Lost in Yesterday is in the playlist: both skipped.
+            "tame impala": top(
+                "Tame Impala",
+                "Loser",
+                "Lost in Yesterday",
+                "Borderline",
+                "Elephant",
+                "Let It Happen",
+                "The Less I Know the Better",
+            ),
+            "mgmt": top("MGMT", "Electric Feel", "Kids"),
+        },
+    )
+    hits = ["Borderline", "Elephant", "Let It Happen", "The Less I Know the Better"]
+    resolver = FakeResolver(
+        hits={f"Tame Impala - {t}": YoutubeHit(f"v{t}", "t", "c") for t in hits}
+        | {"MGMT - Electric Feel": YoutubeHit("vMGMT", "t", "c")}
+    )
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=10, now=NOW)
+    assert [r.video_id for r in recs] == ["vBorderline", "vElephant", "vLet It Happen", "vMGMT"]
+    # Only as many searches as songs taken.
+    assert len(resolver.calls) == 4
+
+
+def test_discover_seed_artist_quota_never_searches_past_the_limit(
+    conn: sqlite3.Connection,
+) -> None:
+    api = FakeLastfm(
+        known=[LOSER],
+        similar_artist_map={"tame impala": [SimilarArtist("MGMT", 0.9)]},
+        top={
+            "tame impala": [TrackInfo("Tame Impala", t, None, None) for t in "ABC"],
+            "mgmt": [TrackInfo("MGMT", "Kids", None, None)],
+        },
+    )
+    resolver = FakeResolver(
+        hits={f"Tame Impala - {t}": YoutubeHit(f"v{t}", "t", "c") for t in "ABC"}
+    )
+    seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
+    recs = discover(conn, PLAYLIST, seed, api=api, resolver=resolver, limit=2, now=NOW)
+    assert [r.video_id for r in recs] == ["vA", "vB"]
+    assert resolver.calls == ["Tame Impala - A", "Tame Impala - B"]
+
+
 def test_artist_calls_are_cached(conn: sqlite3.Connection) -> None:
     api = FakeLastfm(known=[LOSER], similar_artist_map={"tame impala": [SimilarArtist("X", 0.5)]})
     seed = resolve_seed(conn, PLAYLIST, "loser", api=api)
