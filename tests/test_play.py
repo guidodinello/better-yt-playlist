@@ -5,19 +5,24 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
+from support.fakes import FakeLastfm, FakeResolver
 from support.playlist import PLAYLIST, seed_playlist
 
 from better_yt_playlist import db
+from better_yt_playlist.lastfm import SimilarTrack
 from better_yt_playlist.match import set_manual
 from better_yt_playlist.play import (
+    FILL_NEW_MAX,
     WATCH_VIDEOS_MAX,
     QueueEntry,
     Reason,
     build_queue,
     from_similar,
+    seed_queue,
     watch_url,
 )
-from better_yt_playlist.similar import Basis, Recommendation, songs_by_artist
+from better_yt_playlist.similar import Basis, Recommendation, Seed, YoutubeHit, songs_by_artist
+from better_yt_playlist.titles import norm
 
 
 def _e(video_id: str, reason: Reason = Reason.TRACK) -> QueueEntry:
@@ -134,3 +139,51 @@ def test_songs_by_artist_finds_a_multi_artist_credit_by_its_first_name(
 
 def test_songs_by_artist_unknown_artist(conn: sqlite3.Connection) -> None:
     assert songs_by_artist(conn, PLAYLIST, "Nirvana") == []
+
+
+# Hello's similar songs: two in the playlist, then many that aren't.
+_OUTSIDE = [f"Band {i}" for i in range(2 * FILL_NEW_MAX)]
+_HELLO_SIMILAR = [
+    SimilarTrack("Tame Impala", "Loser", 0.9, None, None),
+    SimilarTrack("Tame Impala", "Lost in Yesterday", 0.8, None, None),
+    *(SimilarTrack(n, "Song", 0.5, None, None) for n in _OUTSIDE),
+]
+_HELLO = Seed("vHello", "Adele - Hello", "Adele", "Hello")
+
+
+def _hello_queue(
+    similar: list[SimilarTrack], *, limit: int, new: int, resolver: FakeResolver | None = None
+) -> list[QueueEntry]:
+    api = FakeLastfm(similar={norm("Adele", "Hello"): similar})
+    resolver = resolver or FakeResolver()
+    resolver.hits = {f"{n} - Song": YoutubeHit(f"v{n}", "t", "c") for n in _OUTSIDE}
+    with db.connect() as conn:
+        return seed_queue(conn, PLAYLIST, _HELLO, api=api, limit=limit, new=new, resolver=resolver)
+
+
+def _new_count(queue: list[QueueEntry]) -> int:
+    return sum(e.reason is Reason.NEW for e in queue)
+
+
+@pytest.mark.usefixtures("conn")
+def test_new_songs_fill_the_gap_when_the_playlist_has_few_related_songs() -> None:
+    queue = _hello_queue(_HELLO_SIMILAR, limit=25, new=2)
+    assert _new_count(queue) == FILL_NEW_MAX  # not just the 2 asked for
+    assert {"vLoser", "vLost"} <= set(_ids(queue))
+
+
+@pytest.mark.usefixtures("conn")
+def test_gap_filling_only_searches_for_what_fits() -> None:
+    resolver = FakeResolver()
+    queue = _hello_queue(_HELLO_SIMILAR[2:], limit=4, new=1, resolver=resolver)
+    assert _new_count(queue) == len(resolver.calls) == 3
+
+
+@pytest.mark.usefixtures("conn")
+def test_a_full_queue_gets_just_the_new_songs_asked_for() -> None:
+    assert _new_count(_hello_queue(_HELLO_SIMILAR, limit=3, new=1)) == 1
+
+
+@pytest.mark.usefixtures("conn")
+def test_new_0_turns_new_songs_off_even_with_a_gap() -> None:
+    assert _ids(_hello_queue(_HELLO_SIMILAR[2:], limit=25, new=0)) == ["vHello"]

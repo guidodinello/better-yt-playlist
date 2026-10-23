@@ -13,7 +13,7 @@ from better_yt_playlist import db
 from better_yt_playlist import warm as warm_module
 from better_yt_playlist.lastfm import SimilarArtist, SimilarTrack, TrackInfo
 from better_yt_playlist.match import set_manual
-from better_yt_playlist.play import DEFAULT_LIMIT, DEFAULT_NEW, Reason, seed_queue
+from better_yt_playlist.play import DEFAULT_LIMIT, DEFAULT_NEW, FILL_NEW_MAX, Reason, seed_queue
 from better_yt_playlist.similar import YoutubeHit, YoutubeLookupFailed, resolve_seed
 from better_yt_playlist.warm import MAX_FAILED_IN_A_ROW, WarmStats, warm
 
@@ -100,7 +100,8 @@ def test_after_warm_a_tap_makes_no_lastfm_call_or_search(conn: sqlite3.Connectio
             new_artists=new_artists,
             resolver=tap,
         )
-        assert sum(e.reason is Reason.NEW for e in queue) == DEFAULT_NEW
+        # The short playlist leaves a gap, so new songs fill it past DEFAULT_NEW.
+        assert sum(e.reason is Reason.NEW for e in queue) == FILL_NEW_MAX
         assert tap.calls == []
     assert (api.similar_calls, api.artist_calls) == calls_after_warm
 

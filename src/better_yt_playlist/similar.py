@@ -12,7 +12,8 @@ with tens of thousands of listeners), so when the track-level results come up
 short of ``limit`` both commands fill the rest from **artist** similarity
 (``artist.getSimilar``, starting with the seed's own artist): ``similar``
 with playlist songs by those artists, ``discover`` with each artist's top
-track (``artist.getTopTracks``). Those rows carry ``basis = "artist"``. An
+track (``artist.getTopTracks``) — up to three from the seed's own artist.
+Those rows carry ``basis = "artist"``. An
 artist name shared by several acts (e.g. "A.M.") makes this fallback
 unreliable — Last.fm merges them into one profile.
 
@@ -36,6 +37,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from itertools import islice
 from typing import Protocol, runtime_checkable
 
 from .lastfm import LastfmApi, SimilarArtist, SimilarTrack, TrackInfo
@@ -49,6 +51,8 @@ CACHE_TTL = timedelta(days=30)
 _SIMILAR_FETCH_LIMIT = 250
 _SIMILAR_ARTISTS_LIMIT = 50
 _TOP_TRACKS_LIMIT = 5
+# `discover`'s artist fill: more of the seed's own artist than of any related one.
+_SEED_ARTIST_TRACKS = 3
 _PER_ARTIST = 2
 _YTDLP_TIMEOUT_S = 60
 _PARALLEL_LOOKUPS = 5
@@ -548,7 +552,8 @@ def discover(
             if len(out) >= limit:
                 return out
 
-    # One top track per related artist, so the fill spans artists.
+    # Up to _SEED_ARTIST_TRACKS top tracks from the seed's own artist, then one
+    # per related artist, so the fill spans artists.
     related = [
         r
         for r in _related_artists(conn, seed, api=api, now=now)
@@ -557,15 +562,25 @@ def discover(
     ]
     start = 0
     while start < len(related) and len(out) < limit:
-        artists = related[start : start + limit - len(out)]
-        start += len(artists)
-        top = {a.name: _top_tracks(conn, a.name, api=api, now=now) for a in artists}
-        firsts = (next((t for t in tracks if eligible(t)), None) for tracks in top.values())
-        failed |= _prefetch_youtube(conn, resolver, [t for t in firsts if t is not None], now)
-        for a in artists:
+        # As above: no more songs per batch than are still missing.
+        batch_quota: list[tuple[SimilarArtist, int]] = []
+        room = limit - len(out)
+        while start < len(related) and room:
+            a = related[start]
+            start += 1
+            want = min(_SEED_ARTIST_TRACKS if a.name == seed.artist else 1, room)
+            batch_quota.append((a, want))
+            room -= want
+        top = {a.name: _top_tracks(conn, a.name, api=api, now=now) for a, _ in batch_quota}
+        picks = [t for a, want in batch_quota for t in islice(filter(eligible, top[a.name]), want)]
+        failed |= _prefetch_youtube(conn, resolver, picks, now)
+        for a, want in batch_quota:
+            added = 0
             for t in top[a.name]:
                 if consider(t, a.match, Basis.ARTIST):
-                    break
+                    added += 1
+                    if added == want:
+                        break
             if len(out) >= limit:
                 return out
     return out

@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `discover` (and so `play --new` and the page's new songs) runs its yt-dlp
   searches up to 5 at a time, never more than a one-by-one run would make; a
   song's first tap on the page went from ~12 s to ~2–8 s
+- When `discover` falls back to artist similarity (Last.fm has no similar
+  tracks for the seed), it takes up to 3 top tracks from the seed's own artist
+  before one each from similar artists, instead of just 1
+- A song with few related songs in the playlist gets new songs filling the gap,
+  up to 10 instead of the 5 asked for, so its queue isn't just the seed
+  (`play.FILL_NEW_MAX`; "+ new" at 0 still means none). `byp warm` searches as
+  many for those songs
 
 ### Fixed
 - A failed yt-dlp search (error exit or timeout, e.g. YouTube throttling) is no
