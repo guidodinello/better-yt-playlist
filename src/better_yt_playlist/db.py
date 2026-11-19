@@ -34,7 +34,11 @@ CREATE TABLE IF NOT EXISTS playlist_items (
     published_at     TEXT,
     synced_at        TEXT NOT NULL,
     removed_at       TEXT,
-    unavailable_at   TEXT
+    unavailable_at   TEXT,
+    -- Why the video is gone: 'private', 'deleted' or 'unknown' (see sync.py).
+    unavailable_reason TEXT,
+    -- When `byp clean` deleted this entry from the YouTube playlist.
+    cleaned_at       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS target_order (
@@ -134,9 +138,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE quota_log ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
         conn.commit()
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(playlist_items)")}
-    if "unavailable_at" not in columns:
-        conn.execute("ALTER TABLE playlist_items ADD COLUMN unavailable_at TEXT")
-        conn.commit()
+    for column in ("unavailable_at", "unavailable_reason", "cleaned_at"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE playlist_items ADD COLUMN {column} TEXT")
+            conn.commit()
 
 
 def connect() -> sqlite3.Connection:

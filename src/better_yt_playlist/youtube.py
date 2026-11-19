@@ -94,7 +94,8 @@ def parse_playlist_id(value: str) -> str:
 def iter_playlist_items(client: Any, playlist_id: str, quota: Quota) -> Iterator[dict[str, Any]]:
     """Yield every ``playlistItem`` resource, following pagination."""
     request = client.playlistItems().list(
-        part="snippet,contentDetails",
+        # `status` costs nothing extra; sync reads it to tell private from deleted.
+        part="snippet,contentDetails,status",
         playlistId=playlist_id,
         maxResults=50,
     )

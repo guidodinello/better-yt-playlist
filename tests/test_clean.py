@@ -134,3 +134,33 @@ def test_clean_stops_at_quota_and_resumes_next_run(tmp_path: Any, monkeypatch: A
     second = clean(PL, conn=conn)
     assert second == {"found": 1, "deleted": 1, "remaining": 0}
     assert [it["id"] for it in fake.items] == ["keep"]
+
+
+def test_clean_keeps_the_rows_it_deletes_and_marks_them(tmp_path: Any, monkeypatch: Any) -> None:
+    monkeypatch.setenv("BYP_DB", str(tmp_path / "d.db"))
+    monkeypatch.setattr("better_yt_playlist.clean.PROJECTS", ["default"])
+    conn = db.connect()
+    for item_id, vid in (("keep", "live"), ("gone", "private")):
+        conn.execute(
+            "INSERT INTO playlist_items (playlist_item_id, playlist_id, video_id, position, "
+            "title, synced_at) VALUES (?, ?, ?, 0, ?, '2026-11-01T00:00:00Z')",
+            (item_id, PL, vid, f"title-{vid}"),
+        )
+    conn.commit()
+    fake = PlaylistFake(
+        [
+            _item("keep", "live", "2026-08-29T00:00:00Z", 0),
+            _item("gone", "private", "2026-08-29T00:00:00Z", 1),
+        ],
+        available={"live"},
+    )
+    monkeypatch.setattr("better_yt_playlist.clean.get_client", lambda project="default": fake)
+
+    clean(PL, conn=conn)
+
+    rows = {r["playlist_item_id"]: r for r in conn.execute("SELECT * FROM playlist_items")}
+    assert rows["gone"]["title"] == "title-private"  # row and metadata kept
+    assert rows["gone"]["cleaned_at"] is not None
+    assert rows["gone"]["removed_at"] is not None
+    assert rows["keep"]["cleaned_at"] is None
+    assert rows["keep"]["removed_at"] is None

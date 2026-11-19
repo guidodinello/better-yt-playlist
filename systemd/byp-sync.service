@@ -15,7 +15,10 @@ EnvironmentFile=%h/projects/better-yt-playlist/byp.env
 ExecStart=/bin/sh -c 'exec %h/projects/better-yt-playlist/.venv/bin/byp sync "$BYP_SONGS_PLAYLIST"'
 ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp match
 # Watch Later (Import) last, and `-` so its failure never skips the songs steps or warm.
+# Sync before clean, so every entry clean deletes already has its row (kept, marked
+# cleaned_at). clean reads BYP_TARGET_PLAYLIST itself.
 ExecStart=-/bin/sh -c 'exec %h/projects/better-yt-playlist/.venv/bin/byp sync "$BYP_TARGET_PLAYLIST"'
+ExecStart=-%h/projects/better-yt-playlist/.venv/bin/byp clean
 StandardOutput=journal
 StandardError=journal
 # A refresh failure would otherwise wait on an OAuth browser flow that never comes.

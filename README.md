@@ -123,8 +123,8 @@ systemctl --user daemon-reload && systemctl --user enable --now byp-serve.servic
 `systemd/byp-sync.{service,timer}` run `byp sync` then `byp match` daily at
 03:00 Montevideo, so new songs are mirrored and mapped to Last.fm without
 running anything by hand. The same run then syncs the Watch Later (Import)
-playlist (`BYP_TARGET_PLAYLIST`, ~200 units); its failure doesn't stop the
-songs steps. Matching only looks at songs not tried before. The
+playlist (`BYP_TARGET_PLAYLIST`) and runs `byp clean` on it (~400 units
+together); a failure there doesn't stop the songs steps. Matching only looks at songs not tried before. The
 service reads a plain `KEY=value` file, `byp.env` (gitignored): systemd doesn't
 understand the `export` lines in `.lastfm.env`.
 
@@ -236,9 +236,22 @@ daily timer is retired: new videos now go straight into the Watch Later
 Later itself is no longer read.
 
 `byp clean --playlist <id>` (or `BYP_TARGET_PLAYLIST`) deletes duplicate copies
-and deleted/private videos from a playlist on YouTube. It isn't scheduled: run
-it by hand when the playlist nears YouTube's 5,000-item cap. Deletions can't be
-undone and cost 50 units each, plus ~200 units for the listing and lookup.
+and deleted/private videos from a playlist on YouTube (50 units each, plus ~200
+for the listing and lookup), keeping YouTube's 5,000-item cap clear. The daily
+`byp-sync` run does it after syncing. Nothing is lost locally: each deleted
+entry keeps its row, with `cleaned_at` and `removed_at` set.
+
+`byp sync` records why a video is gone in `unavailable_reason`: `private`,
+`deleted` (from the entry's `status.privacyStatus`, which the API docs don't
+describe but real playlists show), or `unknown`. A row keeps the title and
+metadata from the last sync that saw the video alive. For example:
+
+```sql
+-- what's still watchable
+SELECT title FROM playlist_items WHERE unavailable_at IS NULL AND removed_at IS NULL;
+-- what went private, even after clean removed it from YouTube
+SELECT title, unavailable_at FROM playlist_items WHERE unavailable_reason = 'private';
+```
 
 ### Spreading the one-off backlog across two projects
 

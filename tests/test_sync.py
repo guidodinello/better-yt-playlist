@@ -68,7 +68,14 @@ class FakeClient:
         return self._v
 
 
-def _pi(item_id: str, video_id: str, position: int, *, owner: str | None = "Chan") -> dict:
+def _pi(
+    item_id: str,
+    video_id: str,
+    position: int,
+    *,
+    owner: str | None = "Chan",
+    privacy: str | None = "public",
+) -> dict:
     snippet = {
         "title": f"title-{video_id}",
         "position": position,
@@ -77,7 +84,10 @@ def _pi(item_id: str, video_id: str, position: int, *, owner: str | None = "Chan
     if owner is not None:
         snippet["videoOwnerChannelTitle"] = owner
         snippet["videoOwnerChannelId"] = "UC" + owner
-    return {"id": item_id, "snippet": snippet, "contentDetails": {"videoId": video_id}}
+    item = {"id": item_id, "snippet": snippet, "contentDetails": {"videoId": video_id}}
+    if privacy is not None:
+        item["status"] = {"privacyStatus": privacy}
+    return item
 
 
 def _video(video_id: str, seconds: int = 60) -> dict:
@@ -166,12 +176,15 @@ def test_migrate_adds_unavailable_at_to_old_db(tmp_path, monkeypatch) -> None:
     import sqlite3
 
     old = sqlite3.connect(path)
-    old.executescript(db.SCHEMA.replace(",\n    unavailable_at   TEXT", ""))
+    schema = db.SCHEMA
+    start = schema.index(",\n    unavailable_at")
+    end = schema.index("\n);", start)
+    old.executescript(schema[:start] + schema[end:])
     old.close()
 
     conn = db.connect()
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(playlist_items)")}
-    assert "unavailable_at" in cols
+    assert {"unavailable_at", "unavailable_reason", "cleaned_at"} <= cols
 
 
 def test_quota_used_today_sums_recent_only(tmp_path, monkeypatch) -> None:
@@ -184,3 +197,49 @@ def test_quota_used_today_sums_recent_only(tmp_path, monkeypatch) -> None:
     q = Quota(conn)
     q.charge(5, "playlistItems.list")
     assert q.used_today() == 5
+
+
+def _reason(conn, item_id: str) -> str | None:
+    row = conn.execute(
+        "SELECT unavailable_reason FROM playlist_items WHERE playlist_item_id = ?", (item_id,)
+    ).fetchone()
+    return row["unavailable_reason"]
+
+
+def test_sync_records_why_a_video_is_gone(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BYP_DB", str(tmp_path / "r.db"))
+    conn = db.connect()
+    pages = [
+        {
+            "items": [
+                _pi("live", "v1", 0),
+                _pi("priv", "vp", 1, owner=None, privacy="private"),
+                _pi("del", "vd", 2, owner=None, privacy="privacyStatusUnspecified"),
+                _pi("odd", "vo", 3, owner=None, privacy=None),
+            ]
+        }
+    ]
+    sync("PL1", conn=conn, client=FakeClient(pages, {"v1": _video("v1")}))
+
+    assert _reason(conn, "live") is None
+    assert _reason(conn, "priv") == "private"
+    assert _reason(conn, "del") == "deleted"
+    assert _reason(conn, "odd") == "unknown"
+
+
+def test_private_video_later_deleted_updates_reason_keeps_first_seen(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BYP_DB", str(tmp_path / "p.db"))
+    conn = db.connect()
+
+    private = [{"items": [_pi("a", "v1", 0, owner=None, privacy="private")]}]
+    sync("PL1", conn=conn, client=FakeClient(private, {}))
+    first_seen = conn.execute("SELECT unavailable_at FROM playlist_items").fetchone()[0]
+
+    deleted = [{"items": [_pi("a", "v1", 0, owner=None, privacy="privacyStatusUnspecified")]}]
+    sync("PL1", conn=conn, client=FakeClient(deleted, {}))
+    assert _reason(conn, "a") == "deleted"
+    assert conn.execute("SELECT unavailable_at FROM playlist_items").fetchone()[0] == first_seen
+
+    alive = [{"items": [_pi("a", "v1", 0)]}]
+    sync("PL1", conn=conn, client=FakeClient(alive, {"v1": _video("v1")}))
+    assert _reason(conn, "a") is None
