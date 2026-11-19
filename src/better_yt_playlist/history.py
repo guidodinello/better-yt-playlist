@@ -27,6 +27,10 @@ logger = logging.getLogger("byp")
 HISTORY_FEED = ":ythistory"
 # Thousands of entries, paged by yt-dlp; far slower than a single playlist.
 FETCH_TIMEOUT_S = 1800
+# Without an explicit end, yt-dlp (2026.10.21) read the whole feed for minutes,
+# exited 0 and printed no entries; with one it printed all 20,733 (2026-11-19).
+# Far above any real history.
+PLAYLIST_END = 1_000_000
 
 _UPSERT = """
 INSERT INTO watch_history (
@@ -55,6 +59,8 @@ def ytdlp_history_cmd(browser: str) -> list[str]:
         "--flat-playlist",
         "--dump-json",
         "--no-warnings",
+        "--playlist-end",
+        str(PLAYLIST_END),
         HISTORY_FEED,
     ]
 
