@@ -122,13 +122,16 @@ systemctl --user daemon-reload && systemctl --user enable --now byp-serve.servic
 
 `systemd/byp-sync.{service,timer}` run `byp sync` then `byp match` daily at
 03:00 Montevideo, so new songs are mirrored and mapped to Last.fm without
-running anything by hand. Matching only looks at songs not tried before. The
+running anything by hand. The same run then syncs the Watch Later (Import)
+playlist (`BYP_TARGET_PLAYLIST`, ~200 units); its failure doesn't stop the
+songs steps. Matching only looks at songs not tried before. The
 service reads a plain `KEY=value` file, `byp.env` (gitignored): systemd doesn't
 understand the `export` lines in `.lastfm.env`.
 
 ```bash
 sed -E 's/^export //' .lastfm.env > byp.env && chmod 600 byp.env
 echo "BYP_SONGS_PLAYLIST=PLxxxxxxxx" >> byp.env
+echo "BYP_TARGET_PLAYLIST=PLyyyyyyyy" >> byp.env   # Watch Later (Import)
 ln -s "$PWD"/systemd/byp-{sync,warm}.service "$PWD"/systemd/byp-sync.timer ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now byp-sync.timer
 journalctl --user -u byp-sync.service      # logs
@@ -224,36 +227,18 @@ byp import-watch-later --browser firefox
 byp import-watch-later --browser firefox --api --name "My Watch Later"
 ```
 
-### Automating the API import
+### The API import backlog (done)
 
-A systemd timer runs daily at 00:05 PT (after quota resets) and imports the
-next batch of remaining videos into the target playlist via `byp import-wl-to-yt`:
+`byp import-wl-to-yt` pushed the Watch Later rows in the local DB into the
+target playlist in daily batches until the backlog cleared (October 2026). Its
+daily timer is retired: new videos now go straight into the Watch Later
+(Import) playlist, which the daily `byp-sync` timer mirrors (see above). Watch
+Later itself is no longer read.
 
-```bash
-# Check timer status
-systemctl --user status byp-import-wl.timer
-
-# View logs
-journalctl --user -u byp-import-wl.service
-
-# Disable and clean up
-systemctl --user disable --now byp-import-wl.timer
-rm ~/.config/systemd/user/byp-import-wl.{service,timer}
-```
-
-Before importing, the service runs `byp clean`, which deletes two kinds of
-entry from the target playlist: extra copies of a video that is in it more than
-once (the API allows duplicates, and an early version of the import created ~600
-of them; the earliest-added copy is kept), and videos that have since been
-deleted or made private (whatever `videos.list` no longer returns). Each
-deletion costs 50 units; once the playlist is clean a run only costs the
-listing plus the video lookup (~200 units). YouTube caps a playlist at 5,000
-items, and a "playlist full" rejection stops the import without marking any
-video as failed.
-
-Timer and service files live in `systemd/` and are symlinked to
-`~/.config/systemd/user/`. The service calls the installed `byp` entry point and
-reads the target playlist from `BYP_TARGET_PLAYLIST`.
+`byp clean --playlist <id>` (or `BYP_TARGET_PLAYLIST`) deletes duplicate copies
+and deleted/private videos from a playlist on YouTube. It isn't scheduled: run
+it by hand when the playlist nears YouTube's 5,000-item cap. Deletions can't be
+undone and cost 50 units each, plus ~200 units for the listing and lookup.
 
 ### Spreading the one-off backlog across two projects
 
