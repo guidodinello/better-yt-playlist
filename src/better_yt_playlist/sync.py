@@ -14,11 +14,11 @@ _UPSERT = """
 INSERT INTO playlist_items (
     playlist_item_id, playlist_id, video_id, position, title, channel_title,
     channel_id, added_at, duration_s, description, tags, view_count,
-    published_at, synced_at, removed_at, unavailable_at
+    published_at, synced_at, removed_at, unavailable_at, unavailable_reason
 ) VALUES (
     :playlist_item_id, :playlist_id, :video_id, :position, :title, :channel_title,
     :channel_id, :added_at, :duration_s, :description, :tags, :view_count,
-    :published_at, :synced_at, NULL, :unavailable_at
+    :published_at, :synced_at, NULL, :unavailable_at, :unavailable_reason
 )
 ON CONFLICT(playlist_item_id) DO UPDATE SET
     position     = excluded.position,
@@ -37,8 +37,25 @@ ON CONFLICT(playlist_item_id) DO UPDATE SET
     published_at = IIF(excluded.unavailable_at IS NULL, excluded.published_at, published_at),
     unavailable_at = IIF(
         excluded.unavailable_at IS NULL, NULL, COALESCE(unavailable_at, excluded.unavailable_at)
-    )
+    ),
+    -- The latest reason wins: a private video can later be deleted.
+    unavailable_reason = excluded.unavailable_reason
 """
+
+
+# Why an entry's video is gone, from the playlist item's ``status.privacyStatus``.
+# Not in the API docs; observed on real playlists (2026-11): a private video's
+# entry says "private", a deleted one's "privacyStatusUnspecified".
+PRIVATE = "private"
+DELETED = "deleted"
+UNKNOWN = "unknown"
+_REASON_BY_PRIVACY = {"private": PRIVATE, "privacyStatusUnspecified": DELETED}
+
+
+def unavailable_reason(item: dict[str, Any]) -> str:
+    """Classify a playlist entry whose video ``videos.list`` did not return."""
+    privacy = item.get("status", {}).get("privacyStatus")
+    return _REASON_BY_PRIVACY.get(privacy, UNKNOWN)
 
 
 def _video_id(item: dict[str, Any]) -> str:
@@ -79,6 +96,7 @@ def _row(
         "synced_at": now,
         # videos.list omits deleted / private videos — that is the signal.
         "unavailable_at": None if video else now,
+        "unavailable_reason": None if video else unavailable_reason(item),
     }
 
 

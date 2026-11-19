@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from datetime import UTC, datetime
 from typing import Any
 
 from .auth import AuthRequiredError, get_client
@@ -66,6 +67,17 @@ def find_unavailable(items: list[dict[str, Any]], available: set[str]) -> list[s
     return [item["id"] for item in items if _video_id(item) not in available]
 
 
+def _mark_cleaned(conn: sqlite3.Connection, playlist_item_id: str) -> None:
+    """Keep the deleted entry's row, recording that clean (not the user) removed it."""
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute(
+        "UPDATE playlist_items SET cleaned_at = ?, removed_at = COALESCE(removed_at, ?) "
+        "WHERE playlist_item_id = ?",
+        (now, now, playlist_item_id),
+    )
+    conn.commit()
+
+
 def clean(playlist_id: str, conn: sqlite3.Connection | None = None) -> dict[str, int]:
     """Delete duplicate and unavailable entries from ``playlist_id`` within today's quota."""
     conn = conn or connect()
@@ -103,6 +115,7 @@ def clean(playlist_id: str, conn: sqlite3.Connection | None = None) -> dict[str,
                 )
             while deleted < len(to_delete) and quota.used_today() + DELETE_COST <= DAILY_QUOTA:
                 delete_playlist_item(client, quota, to_delete[deleted])
+                _mark_cleaned(conn, to_delete[deleted])
                 deleted += 1
                 if deleted % 50 == 0:
                     logger.info("  [%d/%d] deleted", deleted, len(to_delete))

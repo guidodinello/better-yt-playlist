@@ -1,5 +1,5 @@
 [Unit]
-Description=Mirror the songs playlist and map new songs to Last.fm (daily)
+Description=Mirror the songs and Watch Later (Import) playlists, map new songs to Last.fm (daily)
 After=network-online.target
 Wants=network-online.target
 # Then pre-fetch new songs for the page (its own unit: it runs longer than this one's timeout).
@@ -8,11 +8,17 @@ OnSuccess=byp-warm.service
 [Service]
 Type=oneshot
 WorkingDirectory=%h/projects/better-yt-playlist
-# Plain KEY=value lines: BYP_LASTFM_API_KEY, BYP_SONGS_PLAYLIST. systemd does not
-# accept the `export KEY=…` lines of .lastfm.env (the keys come through unset).
+# Plain KEY=value lines: BYP_LASTFM_API_KEY, BYP_SONGS_PLAYLIST, BYP_TARGET_PLAYLIST.
+# systemd does not accept the `export KEY=…` lines of .lastfm.env (the keys come
+# through unset).
 EnvironmentFile=%h/projects/better-yt-playlist/byp.env
 ExecStart=/bin/sh -c 'exec %h/projects/better-yt-playlist/.venv/bin/byp sync "$BYP_SONGS_PLAYLIST"'
 ExecStart=%h/projects/better-yt-playlist/.venv/bin/byp match
+# Watch Later (Import) last, and `-` so its failure never skips the songs steps or warm.
+# Sync before clean, so every entry clean deletes already has its row (kept, marked
+# cleaned_at). clean reads BYP_TARGET_PLAYLIST itself.
+ExecStart=-/bin/sh -c 'exec %h/projects/better-yt-playlist/.venv/bin/byp sync "$BYP_TARGET_PLAYLIST"'
+ExecStart=-%h/projects/better-yt-playlist/.venv/bin/byp clean
 StandardOutput=journal
 StandardError=journal
 # A refresh failure would otherwise wait on an OAuth browser flow that never comes.

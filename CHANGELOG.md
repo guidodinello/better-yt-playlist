@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs it after each successful daily sync (`OnSuccess=`)
 
 ### Changed
+- The daily `byp-sync` timer also syncs the Watch Later (Import) playlist
+  (`BYP_TARGET_PLAYLIST` in `byp.env`) and then runs `byp clean` on it. The
+  `byp-import-wl` timer is retired: its backlog is done
+- `byp sync` records why a video is gone (`unavailable_reason`: `private`,
+  `deleted` or `unknown`), and `byp clean` marks the rows of entries it deletes
+  (`cleaned_at`) instead of leaving them indistinguishable from your removals
 - `byp serve` mixes 5 new songs (from `discover`) into a song's queue by
   default, so discovering doesn't need opting into; set "+ new" to 0 to turn it
   off. `byp play --new` still defaults to 0
