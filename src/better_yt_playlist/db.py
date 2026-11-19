@@ -117,6 +117,21 @@ CREATE TABLE IF NOT EXISTS youtube_lookups (
     PRIMARY KEY (artist, track)
 );
 
+-- Videos in the account's YouTube watch history, read with yt-dlp (no API
+-- access; `byp import-history`). "Watched" means opened, not finished. The feed
+-- has no watch times: `position` is the order in the latest read (0 = most
+-- recent), NULL once a video is no longer in the feed (e.g. Google deleted it).
+CREATE TABLE IF NOT EXISTS watch_history (
+    video_id      TEXT PRIMARY KEY,
+    title         TEXT,
+    channel_title TEXT,
+    channel_id    TEXT,
+    duration_s    INTEGER,
+    position      INTEGER,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS import_failures (
     target_playlist_id TEXT NOT NULL,
     video_id            TEXT NOT NULL,

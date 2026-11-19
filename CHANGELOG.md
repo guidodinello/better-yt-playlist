@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `byp import-history`: stores the account's YouTube watch history
+  (`watch_history` table) via yt-dlp and browser cookies, or from a saved
+  `--dump-json` file on a machine without a browser. No API quota
 - Song similarity via Last.fm: `byp match` maps playlist videos to a canonical
   (artist, track) (`track_metadata` table, with `--set` manual overrides),
   `byp similar` lists playlist songs similar to a seed song, and `byp discover`

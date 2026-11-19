@@ -227,6 +227,30 @@ byp import-watch-later --browser firefox
 byp import-watch-later --browser firefox --api --name "My Watch Later"
 ```
 
+### Watch history
+
+`byp import-history` stores the account's watch history in the `watch_history`
+table, so queries can tell watched videos from unwatched ones. Like Watch
+Later, history is out of the Data API's reach; yt-dlp reads the history feed
+with browser cookies, at no quota cost. "Watched" means opened, not finished,
+and the feed has no watch times, only order (`position`, 0 = most recent).
+Re-running adds new entries and keeps old ones, even after Google deletes them.
+
+```bash
+byp import-history --browser firefox
+# no browser (the Pi): dump on a machine with one, then load the file
+yt-dlp --cookies-from-browser firefox --flat-playlist --dump-json :ythistory > history.jsonl
+byp import-history --file history.jsonl
+```
+
+```sql
+-- unwatched videos per channel in a playlist
+SELECT channel_title, count(*) FROM playlist_items p
+WHERE playlist_id = 'PL...' AND removed_at IS NULL
+  AND video_id NOT IN (SELECT video_id FROM watch_history)
+GROUP BY 1 ORDER BY 2 DESC;
+```
+
 ### The API import backlog (done)
 
 `byp import-wl-to-yt` pushed the Watch Later rows in the local DB into the

@@ -6,6 +6,7 @@
     byp reorder [--budget N]     push the target order to YouTube, a bit at a time
     byp reorder --status         show how many moves and days remain
     byp clean [--playlist ID]    delete duplicate and unavailable entries, a bit at a time
+    byp import-history           store the account's watch history (yt-dlp, no quota)
     byp match                    map songs to Last.fm (artist, track)
     byp similar "<song>"         songs in the playlist similar to one of them
     byp discover "<song>"        similar songs not in the playlist, with YouTube links
@@ -23,6 +24,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import __version__
@@ -99,6 +101,22 @@ def main() -> int:
         "--target-playlist",
         default=os.environ.get("BYP_TARGET_PLAYLIST"),
         help="Playlist id to import into (default: $BYP_TARGET_PLAYLIST)",
+    )
+
+    p_history = sub.add_parser(
+        "import-history",
+        help="Store the account's YouTube watch history via yt-dlp (no quota)",
+    )
+    source = p_history.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--browser",
+        choices=["chrome", "brave", "edge", "firefox"],
+        help="Browser to read YouTube cookies from",
+    )
+    source.add_argument(
+        "--file",
+        type=Path,
+        help="yt-dlp --dump-json output of :ythistory, saved on a machine with a browser",
     )
 
     p_clean = sub.add_parser(
@@ -300,6 +318,11 @@ def main() -> int:
             "Watch Later videos; %(failed)d permanently failed",
             stats,
         )
+    elif args.command == "import-history":
+        from .history import import_history
+
+        stats = import_history(browser=args.browser, file=args.file)
+        logger.info("watch history: %(videos)d videos read, %(new)d new, %(total)d stored", stats)
     elif args.command == "clean":
         if not args.playlist:
             raise SystemExit("no playlist — pass --playlist or set BYP_TARGET_PLAYLIST")
