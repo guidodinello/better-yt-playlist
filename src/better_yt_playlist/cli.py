@@ -7,6 +7,7 @@
     byp reorder --status         show how many moves and days remain
     byp clean [--playlist ID]    delete duplicate and unavailable entries, a bit at a time
     byp import-history           store the account's watch history (yt-dlp, no quota)
+    byp stats [PLAYLIST]         facts about a playlist: channels, durations, age, views
     byp match                    map songs to Last.fm (artist, track)
     byp similar "<song>"         songs in the playlist similar to one of them
     byp discover "<song>"        similar songs not in the playlist, with YouTube links
@@ -117,6 +118,16 @@ def main() -> int:
         "--file",
         type=Path,
         help="yt-dlp --dump-json output of :ythistory, saved on a machine with a browser",
+    )
+
+    p_stats = sub.add_parser(
+        "stats", help="Facts about a mirrored playlist: channels, durations, age, views"
+    )
+    p_stats.add_argument(
+        "playlist",
+        nargs="?",
+        default=os.environ.get("BYP_TARGET_PLAYLIST"),
+        help="Playlist id or URL (default: $BYP_TARGET_PLAYLIST)",
     )
 
     p_clean = sub.add_parser(
@@ -323,6 +334,13 @@ def main() -> int:
 
         stats = import_history(browser=args.browser, file=args.file)
         logger.info("watch history: %(videos)d videos read, %(new)d new, %(total)d stored", stats)
+    elif args.command == "stats":
+        if not args.playlist:
+            raise SystemExit("no playlist — pass one or set BYP_TARGET_PLAYLIST")
+        from .stats import stats
+        from .youtube import parse_playlist_id
+
+        print(stats(parse_playlist_id(args.playlist)))
     elif args.command == "clean":
         if not args.playlist:
             raise SystemExit("no playlist — pass --playlist or set BYP_TARGET_PLAYLIST")

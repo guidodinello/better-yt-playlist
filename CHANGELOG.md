@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `byp stats [PLAYLIST]`: facts about a playlist's live videos (size, top
+  channels, durations, age, views, added per month), with watched counts when
+  the watch history is imported. Defaults to `BYP_TARGET_PLAYLIST`
 - `byp import-history`: stores the account's YouTube watch history
   (`watch_history` table) via yt-dlp and browser cookies, or from a saved
   `--dump-json` file on a machine without a browser. No API quota
