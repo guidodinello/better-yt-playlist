@@ -50,3 +50,4 @@ htmlcov/
 
 # Local worktrees
 .claude/worktrees/
+results/

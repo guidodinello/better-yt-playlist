@@ -239,7 +239,8 @@ Re-running adds new entries and keeps old ones, even after Google deletes them.
 ```bash
 byp import-history --browser firefox
 # no browser (the Pi): dump on a machine with one, then load the file
-yt-dlp --cookies-from-browser firefox --flat-playlist --dump-json :ythistory > history.jsonl
+yt-dlp --cookies-from-browser firefox --flat-playlist --dump-json \
+  --playlist-end 1000000 :ythistory > history.jsonl   # without the end: no output
 byp import-history --file history.jsonl
 ```
 

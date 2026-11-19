@@ -32,6 +32,7 @@ def test_reads_the_history_feed_with_browser_cookies() -> None:
     cmd = ytdlp_history_cmd("firefox")
     assert cmd[-1] == ":ythistory"
     assert cmd[cmd.index("--cookies-from-browser") + 1] == "firefox"
+    assert "--playlist-end" in cmd  # without it yt-dlp printed nothing
 
 
 def test_rewatched_video_keeps_its_most_recent_place() -> None:
