@@ -29,7 +29,7 @@ class _Req:
     def __init__(self, payload: dict) -> None:
         self.payload = payload
 
-    def execute(self) -> dict:
+    def execute(self, num_retries: int = 0) -> dict:
         return self.payload
 
 

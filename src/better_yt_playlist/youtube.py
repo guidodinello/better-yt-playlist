@@ -10,6 +10,9 @@ Quota costs (verified against Google's quota calculator):
     playlistItems.update  50
     playlistItems.insert  50
     playlistItems.delete  50
+
+Reads retry on network errors and 5xx (:data:`READ_RETRIES`); writes do not,
+since a retried insert whose first attempt landed would add a duplicate.
 """
 
 from __future__ import annotations
@@ -22,6 +25,11 @@ from urllib.parse import parse_qs, urlparse
 from googleapiclient.errors import HttpError
 
 from .db import Quota
+
+# googleapiclient retries timeouts, connection errors, 5xx and 429 with
+# exponential backoff. One night the Pi's first request timed out on connect
+# and the whole sync failed; a few retries ride out a short outage.
+READ_RETRIES = 4
 
 
 class QuotaExceeded(RuntimeError):
@@ -100,7 +108,7 @@ def iter_playlist_items(client: Any, playlist_id: str, quota: Quota) -> Iterator
         maxResults=50,
     )
     while request is not None:
-        response = _execute(request, quota, 1, "playlistItems.list")
+        response = _execute(request, quota, 1, "playlistItems.list", retries=READ_RETRIES)
         yield from response.get("items", [])
         request = client.playlistItems().list_next(request, response)
 
@@ -138,7 +146,7 @@ def fetch_videos(client: Any, video_ids: list[str], quota: Quota) -> dict[str, d
             id=",".join(chunk),
             maxResults=50,
         )
-        response = _execute(request, quota, 1, "videos.list")
+        response = _execute(request, quota, 1, "videos.list", retries=READ_RETRIES)
         for item in response.get("items", []):
             out[item["id"]] = item
     return out
@@ -203,9 +211,11 @@ def delete_playlist_item(client: Any, quota: Quota, playlist_item_id: str) -> No
     _execute(request, quota, 50, "playlistItems.delete")
 
 
-def _execute(request: Any, quota: Quota, units: int, method: str) -> dict[str, Any]:
+def _execute(
+    request: Any, quota: Quota, units: int, method: str, *, retries: int = 0
+) -> dict[str, Any]:
     try:
-        response = request.execute()
+        response = request.execute(num_retries=retries)
     except HttpError as exc:
         if is_quota_exceeded(exc):
             raise QuotaExceeded(method) from exc

@@ -24,7 +24,7 @@ class _Req:
     def __init__(self, payload: Json) -> None:
         self.payload = payload
 
-    def execute(self) -> Json:
+    def execute(self, num_retries: int = 0) -> Json:
         return self.payload
 
 
@@ -32,7 +32,7 @@ class _Raiser:
     def __init__(self, exc: Exception) -> None:
         self.exc = exc
 
-    def execute(self) -> Json:
+    def execute(self, num_retries: int = 0) -> Json:
         raise self.exc
 
 
