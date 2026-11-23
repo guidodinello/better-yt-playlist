@@ -28,7 +28,7 @@ class _Req:
     def __init__(self, payload: Json) -> None:
         self.payload = payload
 
-    def execute(self) -> Json:
+    def execute(self, num_retries: int = 0) -> Json:
         return self.payload
 
 

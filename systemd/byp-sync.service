@@ -4,6 +4,10 @@ After=network-online.target
 Wants=network-online.target
 # Then pre-fetch new songs for the page (its own unit: it runs longer than this one's timeout).
 OnSuccess=byp-warm.service
+# Restart (below) at most twice per night: 3 starts in 2 h, then the unit stays
+# failed until the next timer run.
+StartLimitIntervalSec=2h
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -23,6 +27,10 @@ StandardOutput=journal
 StandardError=journal
 # A refresh failure would otherwise wait on an OAuth browser flow that never comes.
 TimeoutStartSec=900
+# A failed night (e.g. the network was down when the timer fired) tries again
+# later instead of waiting a day. Every step is safe to rerun.
+Restart=on-failure
+RestartSec=20min
 
 [Install]
 WantedBy=default.target
